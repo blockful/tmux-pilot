@@ -77,6 +77,8 @@ func (m *Model) View() string {
 
 	var content string
 	switch m.mode {
+	case ModeSetup:
+		content = m.viewSetup()
 	case ModeList:
 		content = m.viewList()
 	case ModeCreate:
@@ -93,6 +95,27 @@ func (m *Model) View() string {
 
 	w := max(50, m.width-4)
 	return frameStyle.Width(w).Render(content)
+}
+
+// viewSetup renders the first-run setup prompt.
+func (m *Model) viewSetup() string {
+	var b strings.Builder
+
+	b.WriteString(titleStyle.Render("tmux-pilot"))
+	b.WriteString("\n\n")
+	b.WriteString("  Add tmux keybinding? (prefix + s)\n\n")
+	b.WriteString(dimText.Render("  This adds to ~/.tmux.conf:"))
+	b.WriteString("\n")
+	b.WriteString(dimText.Render(`  bind s display-popup -E -w 60% -h 50% "tmux-pilot"`))
+	b.WriteString("\n\n")
+	b.WriteString(helpStyle.Render("  [y/enter] yes  [n/esc] skip"))
+
+	if m.err != nil {
+		b.WriteString("\n\n")
+		b.WriteString(errorStyle.Render("  Error: " + m.err.Error()))
+	}
+
+	return b.String()
 }
 
 // viewList renders the session list with help bar.
