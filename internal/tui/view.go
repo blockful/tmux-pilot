@@ -151,7 +151,7 @@ func (m *Model) viewConfirm() string {
 
 	b.WriteString(titleStyle.Render("tmux-pilot"))
 	b.WriteString("\n\n")
-	b.WriteString(fmt.Sprintf("  Kill session '%s'?\n\n", m.killName))
+	fmt.Fprintf(&b, "  Kill session '%s'?\n\n", m.killName)
 	b.WriteString(helpStyle.Render("  [y/enter] yes  [n/esc] no"))
 
 	return b.String()
