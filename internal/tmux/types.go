@@ -15,5 +15,6 @@ type Client interface {
 	SwitchSession(name string) error
 	RenameSession(old, new string) error
 	KillSession(name string) error
+	DetachSession() error
 	IsInsideTmux() bool
 }

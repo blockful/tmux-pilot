@@ -159,3 +159,23 @@ func TestView_SetupMode(t *testing.T) {
 		}
 	}
 }
+
+func TestView_ListMode_DetachKey(t *testing.T) {
+	m, _ := testModel()
+	view := m.View()
+	if !strings.Contains(view, "[d] detach") {
+		t.Error("list view missing detach keybinding")
+	}
+}
+
+func TestView_Warning(t *testing.T) {
+	m, _ := testModel()
+	m.mode = ModeRename
+	m.input = "main"
+	m.warning = "Session 'main' already exists"
+	view := m.View()
+
+	if !strings.Contains(view, "Session 'main' already exists") {
+		t.Error("warning should be displayed")
+	}
+}

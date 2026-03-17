@@ -46,6 +46,7 @@ type Model struct {
 	input     string
 	killName  string // session name pending kill confirmation
 	err       error
+	warning   string // non-fatal warning (e.g. duplicate name)
 	width     int
 	height    int
 	quitting  bool
@@ -94,6 +95,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mode = ModeList
 		m.input = ""
 		m.killName = ""
+		m.warning = ""
 		if msg.switchTo != "" {
 			m.quitting = true
 			return m, tea.Quit
@@ -180,6 +182,8 @@ func (m *Model) handleListKey(key string) (tea.Model, tea.Cmd) {
 			m.killName = m.sessions[m.cursor].Name
 			m.err = nil
 		}
+	case "d":
+		return m, m.detachSession()
 	}
 	return m, nil
 }
@@ -187,27 +191,46 @@ func (m *Model) handleListKey(key string) (tea.Model, tea.Cmd) {
 // handleInputKey handles keys in create/rename modes.
 // submit is called when enter is pressed with non-empty input.
 func (m *Model) handleInputKey(key string, submit func() tea.Cmd) (tea.Model, tea.Cmd) {
+	// Clear warning on any input change
 	switch key {
 	case "esc":
 		m.mode = ModeList
 		m.input = ""
+		m.warning = ""
 		return m, nil
 	case "enter":
 		if m.input != "" {
+			if m.sessionNameExists(m.input) {
+				m.warning = "Session '" + m.input + "' already exists"
+				return m, nil
+			}
+			m.warning = ""
 			return m, submit()
 		}
 		return m, nil
 	case "backspace":
+		m.warning = ""
 		if len(m.input) > 0 {
 			m.input = m.input[:len(m.input)-1]
 		}
 		return m, nil
 	default:
+		m.warning = ""
 		if len(key) == 1 && key[0] >= ' ' && key[0] <= '~' {
 			m.input += key
 		}
 		return m, nil
 	}
+}
+
+// sessionNameExists checks if a session name is already in use.
+func (m *Model) sessionNameExists(name string) bool {
+	for _, s := range m.sessions {
+		if s.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // handleConfirmKey handles keys in the kill confirmation dialog.
@@ -275,6 +298,13 @@ func (m *Model) killSession(name string) tea.Cmd {
 	}
 }
 
+func (m *Model) detachSession() tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.DetachSession()
+		return operationMsg{err: err, switchTo: "detach"}
+	}
+}
+
 func (m *Model) runSetup() tea.Cmd {
 	return func() tea.Msg {
 		if m.setupFunc == nil {
@@ -304,6 +334,9 @@ func (m *Model) KillName() string { return m.killName }
 
 // Err returns the current error, if any.
 func (m *Model) Err() error { return m.err }
+
+// Warning returns the current warning message, if any.
+func (m *Model) Warning() string { return m.warning }
 
 // Width returns the terminal width.
 func (m *Model) Width() int { return m.width }
