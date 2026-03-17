@@ -42,7 +42,13 @@ go build -o tmux-pilot ./cmd
 
 ## Setup
 
-Add to `~/.tmux.conf` for a popup overlay on `prefix + s`:
+Automatic (adds keybinding to `~/.tmux.conf` and reloads):
+
+```bash
+tmux-pilot --setup
+```
+
+Or manual — add to `~/.tmux.conf`:
 
 ```bash
 bind s display-popup -E -w 60% -h 50% "tmux-pilot"
