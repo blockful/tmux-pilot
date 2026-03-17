@@ -10,6 +10,19 @@ import (
 
 const tmuxBinding = `bind s display-popup -E -w 60% -h 50% "tmux-pilot"`
 
+// NeedsSetup returns true if tmux-pilot is not yet configured in ~/.tmux.conf.
+func NeedsSetup() bool {
+	confPath, err := tmuxConfPath()
+	if err != nil {
+		return false
+	}
+	exists, err := bindingExists(confPath)
+	if err != nil {
+		return false
+	}
+	return !exists
+}
+
 // Run adds the tmux-pilot keybinding to ~/.tmux.conf and reloads tmux config.
 // It is idempotent — skips if the binding already exists.
 func Run() error {
@@ -24,7 +37,7 @@ func Run() error {
 	}
 	if exists {
 		fmt.Println("✓ tmux-pilot binding already configured in", confPath)
-		return reloadTmux()
+		return nil
 	}
 
 	if err := appendBinding(confPath); err != nil {

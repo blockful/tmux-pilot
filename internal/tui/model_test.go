@@ -11,7 +11,7 @@ import (
 // helper to create a model pre-loaded with sessions.
 func testModel() (*Model, *tmux.MockClient) {
 	mock := tmux.NewMockClient()
-	m := New(mock)
+	m := New(mock, false, nil)
 	// Simulate Init() by processing the sessionsMsg directly
 	m.sessions = []tmux.Session{
 		{Name: "main", WindowCount: 3, Attached: true},
@@ -33,7 +33,7 @@ func specialKey(t tea.KeyType) tea.KeyMsg {
 
 func TestNew(t *testing.T) {
 	mock := tmux.NewMockClient()
-	m := New(mock)
+	m := New(mock, false, nil)
 
 	if m.Mode() != ModeList {
 		t.Errorf("expected ModeList, got %d", m.Mode())
@@ -48,7 +48,7 @@ func TestNew(t *testing.T) {
 
 func TestInit_ReturnsCommand(t *testing.T) {
 	mock := tmux.NewMockClient()
-	m := New(mock)
+	m := New(mock, false, nil)
 	cmd := m.Init()
 	if cmd == nil {
 		t.Error("Init() should return a command")
@@ -551,5 +551,95 @@ func TestErrorClearedOnModeChange(t *testing.T) {
 
 	if model.Err() != nil {
 		t.Error("error should be cleared when entering create mode")
+	}
+}
+
+// --- Setup mode ---
+
+func TestNew_WithSetup(t *testing.T) {
+	mock := tmux.NewMockClient()
+	m := New(mock, true, nil)
+	if m.Mode() != ModeSetup {
+		t.Errorf("expected ModeSetup, got %d", m.Mode())
+	}
+}
+
+func TestNew_WithoutSetup(t *testing.T) {
+	mock := tmux.NewMockClient()
+	m := New(mock, false, nil)
+	if m.Mode() != ModeList {
+		t.Errorf("expected ModeList, got %d", m.Mode())
+	}
+}
+
+func TestSetup_AcceptY(t *testing.T) {
+	mock := tmux.NewMockClient()
+	called := false
+	setupFn := func() error { called = true; return nil }
+	m := New(mock, true, setupFn)
+
+	_, cmd := m.Update(key("y"))
+	if cmd == nil {
+		t.Fatal("y should produce setup command")
+	}
+	msg := cmd()
+	if !called {
+		t.Error("setup function should have been called")
+	}
+	result, _ := m.Update(msg)
+	model := result.(*Model)
+	if model.Mode() != ModeList {
+		t.Errorf("expected ModeList after setup, got %d", model.Mode())
+	}
+}
+
+func TestSetup_AcceptEnter(t *testing.T) {
+	mock := tmux.NewMockClient()
+	setupFn := func() error { return nil }
+	m := New(mock, true, setupFn)
+
+	_, cmd := m.Update(specialKey(tea.KeyEnter))
+	if cmd == nil {
+		t.Error("enter should produce setup command")
+	}
+}
+
+func TestSetup_Skip(t *testing.T) {
+	mock := tmux.NewMockClient()
+	m := New(mock, true, nil)
+
+	result, _ := m.Update(key("n"))
+	model := result.(*Model)
+	if model.Mode() != ModeList {
+		t.Errorf("expected ModeList after skip, got %d", model.Mode())
+	}
+}
+
+func TestSetup_SkipEsc(t *testing.T) {
+	mock := tmux.NewMockClient()
+	m := New(mock, true, nil)
+
+	result, _ := m.Update(specialKey(tea.KeyEscape))
+	model := result.(*Model)
+	if model.Mode() != ModeList {
+		t.Error("esc should skip to list mode")
+	}
+}
+
+func TestSetup_Error(t *testing.T) {
+	mock := tmux.NewMockClient()
+	setupFn := func() error { return errors.New("permission denied") }
+	m := New(mock, true, setupFn)
+
+	_, cmd := m.Update(key("y"))
+	msg := cmd()
+	result, _ := m.Update(msg)
+	model := result.(*Model)
+
+	if model.Err() == nil {
+		t.Error("setup error should be set")
+	}
+	if model.Mode() != ModeList {
+		t.Error("should return to list mode even on error")
 	}
 }

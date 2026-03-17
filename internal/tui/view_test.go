@@ -139,3 +139,23 @@ func TestView_Quitting(t *testing.T) {
 type testError struct{ msg string }
 
 func (e *testError) Error() string { return e.msg }
+
+func TestView_SetupMode(t *testing.T) {
+	m, _ := testModel()
+	m.mode = ModeSetup
+	view := m.View()
+
+	checks := []string{
+		"tmux-pilot",
+		"Add tmux keybinding",
+		"prefix + s",
+		".tmux.conf",
+		"[y/enter] yes",
+		"[n/esc] skip",
+	}
+	for _, check := range checks {
+		if !strings.Contains(view, check) {
+			t.Errorf("setup view missing %q", check)
+		}
+	}
+}

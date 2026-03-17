@@ -13,6 +13,7 @@ const (
 	ModeCreate                  // Typing a new session name
 	ModeRename                  // Typing a new name for existing session
 	ModeConfirmKill             // Confirming session kill
+	ModeSetup                   // First-run setup prompt
 )
 
 // sessionsMsg carries a refreshed session list.
@@ -27,26 +28,43 @@ type operationMsg struct {
 	switchTo string // if non-empty, quit after switching
 }
 
+// setupDoneMsg signals that the setup operation completed.
+type setupDoneMsg struct {
+	err error
+}
+
+// SetupFunc is the function called to perform setup.
+// Injected to keep the model testable without filesystem side effects.
+type SetupFunc func() error
+
 // Model is the BubbleTea model for tmux-pilot.
 type Model struct {
-	client  tmux.Client
-	sessions []tmux.Session
-	cursor   int
-	mode     Mode
-	input    string
-	killName string // session name pending kill confirmation
-	err      error
-	width    int
-	height   int
-	quitting bool
+	client    tmux.Client
+	sessions  []tmux.Session
+	cursor    int
+	mode      Mode
+	input     string
+	killName  string // session name pending kill confirmation
+	err       error
+	width     int
+	height    int
+	quitting  bool
+	setupFunc SetupFunc
 }
 
 // New creates a Model wired to the given tmux client.
-func New(client tmux.Client) *Model {
+// If needsSetup is true, the first screen will prompt to configure tmux.
+func New(client tmux.Client, needsSetup bool, setupFn SetupFunc) *Model {
+	mode := ModeList
+	if needsSetup {
+		mode = ModeSetup
+	}
 	return &Model{
-		client: client,
-		width:  80,
-		height: 24,
+		client:    client,
+		width:     80,
+		height:    24,
+		mode:      mode,
+		setupFunc: setupFn,
 	}
 }
 
@@ -82,6 +100,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.fetchSessions()
 
+	case setupDoneMsg:
+		if msg.err != nil {
+			m.err = msg.err
+		}
+		m.mode = ModeList
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -94,6 +119,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
 	switch m.mode {
+	case ModeSetup:
+		return m.handleSetupKey(key)
 	case ModeList:
 		return m.handleListKey(key)
 	case ModeCreate:
@@ -102,6 +129,18 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleInputKey(key, m.doRename)
 	case ModeConfirmKill:
 		return m.handleConfirmKey(key)
+	}
+	return m, nil
+}
+
+// handleSetupKey handles keys in the first-run setup prompt.
+func (m *Model) handleSetupKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "y", "enter":
+		return m, m.runSetup()
+	case "n", "esc", "q":
+		m.mode = ModeList
+		return m, nil
 	}
 	return m, nil
 }
@@ -233,6 +272,16 @@ func (m *Model) killSession(name string) tea.Cmd {
 	return func() tea.Msg {
 		err := m.client.KillSession(name)
 		return operationMsg{err: err}
+	}
+}
+
+func (m *Model) runSetup() tea.Cmd {
+	return func() tea.Msg {
+		if m.setupFunc == nil {
+			return setupDoneMsg{}
+		}
+		err := m.setupFunc()
+		return setupDoneMsg{err: err}
 	}
 }
 
