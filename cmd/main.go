@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/blockful/tmux-pilot/internal/setup"
 	"github.com/blockful/tmux-pilot/internal/tmux"
 	"github.com/blockful/tmux-pilot/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,9 +18,18 @@ var (
 )
 
 func main() {
-	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
-		fmt.Printf("tmux-pilot %s (%s, %s)\n", version, commit, date)
-		os.Exit(0)
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "--version", "-v":
+			fmt.Printf("tmux-pilot %s (%s, %s)\n", version, commit, date)
+			os.Exit(0)
+		case "--setup":
+			if err := setup.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Setup failed: %v\n", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
+		}
 	}
 
 	client := tmux.NewRealClient()
