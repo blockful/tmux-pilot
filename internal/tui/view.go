@@ -65,6 +65,10 @@ var (
 			Foreground(red).
 			Bold(true)
 
+	warnStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("214")).
+			Bold(true)
+
 	dimText = lipgloss.NewStyle().
 		Foreground(dim)
 )
@@ -137,7 +141,7 @@ func (m *Model) viewList() string {
 	b.WriteString("\n")
 	b.WriteString(helpStyle.Render("  [enter] switch  [n] new  [r] rename"))
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("  [x] kill  [q] quit"))
+	b.WriteString(helpStyle.Render("  [x] kill  [d] detach  [q] quit"))
 	b.WriteString("\n\n")
 	b.WriteString(tipStyle.Render("  tip: Ctrl-b d to detach from tmux"))
 
@@ -157,6 +161,12 @@ func (m *Model) viewInput(label, help string) string {
 	b.WriteString("\n\n")
 	b.WriteString("  " + label + "\n\n")
 	b.WriteString("  " + inputStyle.Render(m.input+"█"))
+
+	if m.warning != "" {
+		b.WriteString("\n\n")
+		b.WriteString(warnStyle.Render("  ⚠ " + m.warning))
+	}
+
 	b.WriteString("\n\n")
 	b.WriteString(helpStyle.Render("  " + help))
 

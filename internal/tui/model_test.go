@@ -643,3 +643,110 @@ func TestSetup_Error(t *testing.T) {
 		t.Error("should return to list mode even on error")
 	}
 }
+
+// --- Detach ---
+
+func TestDetach(t *testing.T) {
+	m, mock := testModel()
+
+	_, cmd := m.Update(key("d"))
+	if cmd == nil {
+		t.Fatal("d should produce detach command")
+	}
+
+	msg := cmd()
+	op := msg.(operationMsg)
+	if op.err != nil {
+		t.Errorf("unexpected error: %v", op.err)
+	}
+	if mock.DetachCalls != 1 {
+		t.Errorf("expected 1 DetachCall, got %d", mock.DetachCalls)
+	}
+
+	// Should quit after detach
+	result, _ := m.Update(msg)
+	model := result.(*Model)
+	if !model.IsQuitting() {
+		t.Error("should quit after detach")
+	}
+}
+
+// --- Rename duplicate warning ---
+
+func TestRename_DuplicateName(t *testing.T) {
+	m, _ := testModel()
+	m.mode = ModeRename
+	m.input = "api-server" // already exists
+	m.cursor = 0           // renaming "main"
+
+	result, cmd := m.Update(specialKey(tea.KeyEnter))
+	model := result.(*Model)
+
+	if cmd != nil {
+		t.Error("should not produce command for duplicate name")
+	}
+	if model.Warning() == "" {
+		t.Error("should set warning for duplicate name")
+	}
+	if model.Mode() != ModeRename {
+		t.Error("should stay in rename mode")
+	}
+}
+
+func TestCreate_DuplicateName(t *testing.T) {
+	m, _ := testModel()
+	m.mode = ModeCreate
+	m.input = "main" // already exists
+
+	result, cmd := m.Update(specialKey(tea.KeyEnter))
+	model := result.(*Model)
+
+	if cmd != nil {
+		t.Error("should not produce command for duplicate name")
+	}
+	if model.Warning() == "" {
+		t.Error("should set warning for duplicate name")
+	}
+	if model.Mode() != ModeCreate {
+		t.Error("should stay in create mode")
+	}
+}
+
+func TestRename_WarningClearsOnType(t *testing.T) {
+	m, _ := testModel()
+	m.mode = ModeRename
+	m.warning = "stale warning"
+
+	result, _ := m.Update(key("a"))
+	model := result.(*Model)
+
+	if model.Warning() != "" {
+		t.Error("warning should clear on typing")
+	}
+}
+
+func TestRename_WarningClearsOnBackspace(t *testing.T) {
+	m, _ := testModel()
+	m.mode = ModeRename
+	m.input = "test"
+	m.warning = "stale warning"
+
+	result, _ := m.Update(specialKey(tea.KeyBackspace))
+	model := result.(*Model)
+
+	if model.Warning() != "" {
+		t.Error("warning should clear on backspace")
+	}
+}
+
+func TestRename_UniqueName(t *testing.T) {
+	m, _ := testModel()
+	m.mode = ModeRename
+	m.input = "unique-name"
+	m.cursor = 0
+
+	_, cmd := m.Update(specialKey(tea.KeyEnter))
+	if cmd == nil {
+		t.Error("should produce command for unique name")
+	}
+}

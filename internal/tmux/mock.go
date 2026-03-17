@@ -12,12 +12,14 @@ type MockClient struct {
 	SwitchErr error
 	RenameErr error
 	KillErr   error
+	DetachErr error
 
 	// Recorded calls for verification
 	NewCalls    []string
 	SwitchCalls []string
 	RenameCalls [][2]string
 	KillCalls   []string
+	DetachCalls int
 }
 
 // NewMockClient creates a MockClient with default test sessions.
@@ -71,6 +73,14 @@ func (m *MockClient) RenameSession(old, new string) error {
 		}
 	}
 	return errors.New("session not found: " + old)
+}
+
+func (m *MockClient) DetachSession() error {
+	m.DetachCalls++
+	if m.DetachErr != nil {
+		return m.DetachErr
+	}
+	return nil
 }
 
 func (m *MockClient) KillSession(name string) error {

@@ -65,6 +65,14 @@ func (c *RealClient) RenameSession(old, new string) error {
 	return nil
 }
 
+// DetachSession detaches the current client from its tmux session.
+func (c *RealClient) DetachSession() error {
+	if err := exec.Command("tmux", "detach-client").Run(); err != nil {
+		return fmt.Errorf("detach session: %w", err)
+	}
+	return nil
+}
+
 // KillSession kills a tmux session.
 func (c *RealClient) KillSession(name string) error {
 	if err := exec.Command("tmux", "kill-session", "-t", name).Run(); err != nil {
