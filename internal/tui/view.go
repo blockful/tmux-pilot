@@ -8,214 +8,106 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// --- Color palette ---
-
 var (
-	accent   = lipgloss.Color("205") // magenta/pink
-	text     = lipgloss.Color("252") // light gray
-	dim      = lipgloss.Color("243") // muted gray
-	border   = lipgloss.Color("240") // border gray
-	green    = lipgloss.Color("46")  // attached indicator
-	red      = lipgloss.Color("196") // errors
-	inputBg  = lipgloss.Color("237") // input background
+	accent  = lipgloss.Color("205")
+	text    = lipgloss.Color("252")
+	dim     = lipgloss.Color("243")
+	border  = lipgloss.Color("240")
+	green   = lipgloss.Color("46")
+	yellow  = lipgloss.Color("214")
+	inputBg = lipgloss.Color("237")
+
+	frame     = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(border).Padding(0, 1)
+	title     = lipgloss.NewStyle().Foreground(accent).Bold(true)
+	selected  = lipgloss.NewStyle().Foreground(accent).Background(inputBg).PaddingLeft(1).PaddingRight(1)
+	normal    = lipgloss.NewStyle().Foreground(text)
+	dotOn     = lipgloss.NewStyle().Foreground(green).Bold(true)
+	dotOff    = lipgloss.NewStyle().Foreground(dim)
+	dimStyle  = lipgloss.NewStyle().Foreground(dim)
+	warnStyle = lipgloss.NewStyle().Foreground(yellow).Bold(true)
+	inputShow = lipgloss.NewStyle().Foreground(text).Background(inputBg).PaddingLeft(1).PaddingRight(1)
+	tipStyle  = lipgloss.NewStyle().Foreground(dim).Italic(true)
 )
 
-// --- Styles ---
-
-var (
-	frameStyle = lipgloss.NewStyle().
-			BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(border).
-			Padding(0, 1)
-
-	titleStyle = lipgloss.NewStyle().
-			Foreground(accent).
-			Bold(true)
-
-	sessionStyle = lipgloss.NewStyle().
-			Foreground(text)
-
-	selectedStyle = lipgloss.NewStyle().
-			Foreground(accent).
-			Background(inputBg).
-			PaddingLeft(1).
-			PaddingRight(1)
-
-	attachedDot = lipgloss.NewStyle().
-			Foreground(green).
-			Bold(true)
-
-	detachedDot = lipgloss.NewStyle().
-			Foreground(dim)
-
-	helpStyle = lipgloss.NewStyle().
-			Foreground(dim)
-
-	tipStyle = lipgloss.NewStyle().
-			Foreground(dim).
-			Italic(true)
-
-	inputStyle = lipgloss.NewStyle().
-			Foreground(text).
-			Background(inputBg).
-			PaddingLeft(1).
-			PaddingRight(1)
-
-	errorStyle = lipgloss.NewStyle().
-			Foreground(red).
-			Bold(true)
-
-	warnStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("214")).
-			Bold(true)
-
-	dimText = lipgloss.NewStyle().
-		Foreground(dim)
-)
-
-// View renders the current model state.
+// View renders the UI.
 func (m *Model) View() string {
-	if m.quitting {
-		return ""
-	}
-
 	var content string
 	switch m.mode {
-	case ModeSetup:
-		content = m.viewSetup()
 	case ModeList:
 		content = m.viewList()
 	case ModeCreate:
-		content = m.viewInput("Create new session:", "[enter] create  [esc] cancel")
+		content = m.viewInput("New session name:")
 	case ModeRename:
-		label := "Rename session:"
-		if len(m.sessions) > 0 && m.cursor < len(m.sessions) {
-			label = fmt.Sprintf("Rename '%s':", m.sessions[m.cursor].Name)
-		}
-		content = m.viewInput(label, "[enter] rename  [esc] cancel")
+		content = m.viewInput(fmt.Sprintf("Rename '%s':", m.sessions[m.cursor].Name))
 	case ModeConfirmKill:
 		content = m.viewConfirm()
 	}
-
-	w := max(50, m.width-4)
-	return frameStyle.Width(w).Render(content)
+	return frame.Width(max(50, m.width-4)).Render(content)
 }
 
-// viewSetup renders the first-run setup prompt.
-func (m *Model) viewSetup() string {
-	var b strings.Builder
-
-	b.WriteString(titleStyle.Render("tmux-pilot"))
-	b.WriteString("\n\n")
-	b.WriteString("  Add tmux keybinding? (prefix + s)\n\n")
-	b.WriteString(dimText.Render("  This adds to ~/.tmux.conf:"))
-	b.WriteString("\n")
-	b.WriteString(dimText.Render(`  bind s display-popup -E -w 60% -h 50% "tmux-pilot"`))
-	b.WriteString("\n\n")
-	b.WriteString(helpStyle.Render("  [y/enter] yes  [n/esc] skip"))
-
-	if m.err != nil {
-		b.WriteString("\n\n")
-		b.WriteString(errorStyle.Render("  Error: " + m.err.Error()))
-	}
-
-	return b.String()
-}
-
-// viewList renders the session list with help bar.
 func (m *Model) viewList() string {
 	var b strings.Builder
-
-	b.WriteString(titleStyle.Render("tmux-pilot"))
+	b.WriteString(title.Render("tmux-pilot"))
 	b.WriteString("\n\n")
 
 	if len(m.sessions) == 0 {
-		b.WriteString(dimText.Render("  No sessions found"))
+		b.WriteString(dimStyle.Render("  No sessions"))
 	} else {
 		for i, s := range m.sessions {
-			b.WriteString(formatSession(s, i == m.cursor))
+			b.WriteString(fmtSession(s, i == m.cursor))
 			b.WriteString("\n")
 		}
 	}
 
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("  [enter] switch  [n] new  [r] rename"))
+	b.WriteString(dimStyle.Render("  [enter] switch  [n] new  [r] rename"))
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("  [x] kill  [d] detach  [q] quit"))
+	b.WriteString(dimStyle.Render("  [x] kill  [d] detach  [q] quit"))
 	b.WriteString("\n\n")
-	b.WriteString(tipStyle.Render("  tip: Ctrl-b d to detach from tmux"))
-
-	if m.err != nil {
-		b.WriteString("\n\n")
-		b.WriteString(errorStyle.Render("  Error: " + m.err.Error()))
-	}
-
+	b.WriteString(tipStyle.Render("  tip: Ctrl-b d to detach"))
 	return b.String()
 }
 
-// viewInput renders create/rename prompts.
-func (m *Model) viewInput(label, help string) string {
+func (m *Model) viewInput(label string) string {
 	var b strings.Builder
-
-	b.WriteString(titleStyle.Render("tmux-pilot"))
+	b.WriteString(title.Render("tmux-pilot"))
 	b.WriteString("\n\n")
 	b.WriteString("  " + label + "\n\n")
-	b.WriteString("  " + inputStyle.Render(m.input+"█"))
-
+	b.WriteString("  " + inputShow.Render(m.input+"█"))
 	if m.warning != "" {
 		b.WriteString("\n\n")
 		b.WriteString(warnStyle.Render("  ⚠ " + m.warning))
 	}
-
 	b.WriteString("\n\n")
-	b.WriteString(helpStyle.Render("  " + help))
-
-	if m.err != nil {
-		b.WriteString("\n\n")
-		b.WriteString(errorStyle.Render("  Error: " + m.err.Error()))
-	}
-
+	b.WriteString(dimStyle.Render("  [enter] confirm  [esc] cancel"))
 	return b.String()
 }
 
-// viewConfirm renders the kill confirmation dialog.
 func (m *Model) viewConfirm() string {
 	var b strings.Builder
-
-	b.WriteString(titleStyle.Render("tmux-pilot"))
+	b.WriteString(title.Render("tmux-pilot"))
 	b.WriteString("\n\n")
-	fmt.Fprintf(&b, "  Kill session '%s'?\n\n", m.killName)
-	b.WriteString(helpStyle.Render("  [y/enter] yes  [n/esc] no"))
-
+	fmt.Fprintf(&b, "  Kill session '%s'?\n\n", m.sessions[m.cursor].Name)
+	b.WriteString(dimStyle.Render("  [y/enter] yes  [n/esc] no"))
 	return b.String()
 }
 
-// formatSession renders a single session line.
-func formatSession(s tmux.Session, selected bool) string {
-	// Dot indicator
-	var dot string
+func fmtSession(s tmux.Session, sel bool) string {
+	dot := dotOff.Render("○")
 	if s.Attached {
-		dot = attachedDot.Render("●")
-	} else {
-		dot = detachedDot.Render("○")
+		dot = dotOn.Render("●")
 	}
-
-	// Window count
 	win := fmt.Sprintf("%d window", s.WindowCount)
 	if s.WindowCount != 1 {
 		win += "s"
 	}
-
-	// Status
 	status := "detached"
 	if s.Attached {
 		status = "attached"
 	}
-
 	info := fmt.Sprintf("%-15s %s   %s", s.Name, win, status)
-
-	if selected {
-		return "  " + dot + " " + selectedStyle.Render(info)
+	if sel {
+		return "  " + dot + " " + selected.Render(info)
 	}
-	return "  " + dot + " " + sessionStyle.Render(info)
+	return "  " + dot + " " + normal.Render(info)
 }

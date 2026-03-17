@@ -4,13 +4,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/blockful/tmux-pilot/internal/setup"
 	"github.com/blockful/tmux-pilot/internal/tmux"
 	"github.com/blockful/tmux-pilot/internal/tui"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// Set by goreleaser ldflags.
 var (
 	version = "dev"
 	commit  = "unknown"
@@ -22,30 +20,46 @@ func main() {
 		switch os.Args[1] {
 		case "--version", "-v":
 			fmt.Printf("tmux-pilot %s (%s, %s)\n", version, commit, date)
-			os.Exit(0)
-		case "--setup":
-			if err := setup.Run(); err != nil {
-				fmt.Fprintf(os.Stderr, "Setup failed: %v\n", err)
-				os.Exit(1)
-			}
-			os.Exit(0)
+			return
 		}
 	}
 
-	client := tmux.NewRealClient()
-	model := tui.New(client, setup.NeedsSetup(), setup.Run)
-
-	opts := []tea.ProgramOption{
-		// WithInputTTY reads from /dev/tty directly, bypassing stdin.
-		// This prevents tmux from mangling escape sequences when
-		// running inside display-popup or nested terminals.
-		tea.WithInputTTY(),
-		tea.WithAltScreen(),
-	}
-
-	p := tea.NewProgram(model, opts...)
-	if _, err := p.Run(); err != nil {
+	// 1. Fetch sessions
+	sessions, err := tmux.ListSessions()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+
+	// 2. Show picker
+	model := tui.New(sessions)
+	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithInputTTY())
+	result, err := p.Run()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 3. Execute action after TUI exits
+	action := result.(*tui.Model).Action()
+	if err := execute(action); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func execute(a tui.Action) error {
+	switch a.Kind {
+	case "switch":
+		return tmux.SwitchOrAttach(a.Target)
+	case "new":
+		return tmux.NewSession(a.Target)
+	case "rename":
+		return tmux.RenameSession(a.Target, a.NewName)
+	case "kill":
+		return tmux.KillSession(a.Target)
+	case "detach":
+		return tmux.Detach()
+	}
+	return nil // user quit without action
 }
