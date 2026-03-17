@@ -118,13 +118,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKey dispatches key presses to the current mode handler.
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Normalize key string. BubbleTea converts both ESC[A and ESCOA
+	// to "up", but we also handle KeyType for robustness.
 	key := msg.String()
 
 	switch m.mode {
 	case ModeSetup:
 		return m.handleSetupKey(key)
 	case ModeList:
-		return m.handleListKey(key)
+		return m.handleListKey(msg)
 	case ModeCreate:
 		return m.handleInputKey(key, m.doCreate)
 	case ModeRename:
@@ -148,23 +150,42 @@ func (m *Model) handleSetupKey(key string) (tea.Model, tea.Cmd) {
 }
 
 // handleListKey handles keys in the session list view.
-func (m *Model) handleListKey(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "q", "esc":
-		m.quitting = true
-		return m, tea.Quit
-	case "up", "k":
+func (m *Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Use KeyType for special keys (more robust than string matching)
+	switch msg.Type {
+	case tea.KeyUp:
 		if m.cursor > 0 {
 			m.cursor--
 		}
-	case "down", "j":
+		return m, nil
+	case tea.KeyDown:
 		if m.cursor < len(m.sessions)-1 {
 			m.cursor++
 		}
-	case "enter":
+		return m, nil
+	case tea.KeyEnter:
 		if len(m.sessions) > 0 {
 			name := m.sessions[m.cursor].Name
 			return m, m.switchSession(name)
+		}
+		return m, nil
+	case tea.KeyEscape:
+		m.quitting = true
+		return m, tea.Quit
+	}
+
+	// Use string for single-char keys
+	switch msg.String() {
+	case "q":
+		m.quitting = true
+		return m, tea.Quit
+	case "k":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	case "j":
+		if m.cursor < len(m.sessions)-1 {
+			m.cursor++
 		}
 	case "n":
 		m.mode = ModeCreate

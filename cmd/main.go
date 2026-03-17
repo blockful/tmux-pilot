@@ -35,7 +35,15 @@ func main() {
 	client := tmux.NewRealClient()
 	model := tui.New(client, setup.NeedsSetup(), setup.Run)
 
-	p := tea.NewProgram(model, tea.WithAltScreen())
+	opts := []tea.ProgramOption{
+		// WithInputTTY reads from /dev/tty directly, bypassing stdin.
+		// This prevents tmux from mangling escape sequences when
+		// running inside display-popup or nested terminals.
+		tea.WithInputTTY(),
+		tea.WithAltScreen(),
+	}
+
+	p := tea.NewProgram(model, opts...)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
