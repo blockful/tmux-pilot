@@ -1,9 +1,8 @@
 # tmux-pilot
 
-A TUI for managing tmux sessions. One keybinding to see, create, rename, switch, and kill sessions.
+A minimal TUI for managing tmux sessions. Pick → execute → done.
 
 [![CI](https://github.com/blockful/tmux-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/blockful/tmux-pilot/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ```
 ┌─ tmux-pilot ──────────────────────────────┐
@@ -11,69 +10,50 @@ A TUI for managing tmux sessions. One keybinding to see, create, rename, switch,
 │  ● main         3 windows   attached      │
 │  ○ api-server   1 window    detached      │
 │  ○ notes        2 windows   detached      │
-│  ○ scratch      1 window    detached      │
 │                                           │
 │  [enter] switch  [n] new  [r] rename      │
-│  [x] kill  [q] quit                       │
+│  [x] kill  [d] detach  [q] quit           │
 │                                           │
-│  tip: Ctrl-b d to detach from tmux        │
+│  tip: Ctrl-b d to detach                  │
 └───────────────────────────────────────────┘
 ```
 
 ## Install
 
-### Go
-
 ```bash
 go install github.com/blockful/tmux-pilot/cmd@latest
 ```
 
-### Download binary
-
-Grab the latest from [Releases](https://github.com/blockful/tmux-pilot/releases) for your platform (Linux/macOS, amd64/arm64).
-
-### Build from source
-
-```bash
-git clone https://github.com/blockful/tmux-pilot.git
-cd tmux-pilot
-go build -o tmux-pilot ./cmd
-```
+Or download from [Releases](https://github.com/blockful/tmux-pilot/releases).
 
 ## Setup
 
-Automatic (adds keybinding to `~/.tmux.conf` and reloads):
-
-```bash
-tmux-pilot --setup
-```
-
-Or manual — add to `~/.tmux.conf`:
+Add to `~/.tmux.conf`:
 
 ```bash
 bind s display-popup -E -w 60% -h 50% "tmux-pilot"
 ```
 
-Then reload: `tmux source-file ~/.tmux.conf`
+Optional alias in `~/.bashrc` or `~/.zshrc`:
 
-Also works standalone outside tmux — it will `attach-session` instead of `switch-client`.
-
-## Keybindings
-
-| Key | Action |
-|-----|--------|
-| `↑`/`↓` `j`/`k` | Navigate |
-| `enter` | Switch to session |
-| `n` | New session |
-| `r` | Rename session |
-| `x` | Kill session (with confirmation) |
-| `q` / `esc` | Quit |
+```bash
+alias tp="tmux-pilot"
+```
 
 ## How it works
 
-tmux-pilot shells out to the `tmux` binary for all operations. No library dependencies on tmux internals. When running inside tmux it uses `switch-client`; outside it uses `attach-session`.
+tmux-pilot is a thin picker. It shows your sessions, you choose an action, it exits and runs the tmux command:
 
-Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) + [LipGloss](https://github.com/charmbracelet/lipgloss).
+| Key | Runs |
+|-----|------|
+| `enter` | `tmux switch-client -t <name>` |
+| `n` | `tmux new-session -d -s <name> && tmux switch-client -t <name>` |
+| `r` | `tmux rename-session -t <old> <new>` |
+| `x` | `tmux kill-session -t <name>` |
+| `d` | `tmux detach-client` |
+| `q`/`esc` | exit |
+
+Navigation: `↑`/`↓` or `j`/`k`
 
 ## License
 

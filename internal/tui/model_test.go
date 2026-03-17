@@ -1,752 +1,202 @@
 package tui
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/blockful/tmux-pilot/internal/tmux"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// helper to create a model pre-loaded with sessions.
-func testModel() (*Model, *tmux.MockClient) {
-	mock := tmux.NewMockClient()
-	m := New(mock, false, nil)
-	// Simulate Init() by processing the sessionsMsg directly
-	m.sessions = []tmux.Session{
-		{Name: "main", WindowCount: 3, Attached: true},
-		{Name: "api-server", WindowCount: 1, Attached: false},
-		{Name: "notes", WindowCount: 2, Attached: false},
-	}
-	return m, mock
+var testSessions = []tmux.Session{
+	{Name: "main", WindowCount: 3, Attached: true},
+	{Name: "api", WindowCount: 1, Attached: false},
+	{Name: "notes", WindowCount: 2, Attached: false},
 }
 
-func key(k string) tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
-}
+func newTestModel() *Model { return New(testSessions) }
 
-func specialKey(t tea.KeyType) tea.KeyMsg {
-	return tea.KeyMsg{Type: t}
-}
+func key(k string) tea.KeyMsg   { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)} }
+func special(t tea.KeyType) tea.KeyMsg { return tea.KeyMsg{Type: t} }
 
-// --- Initialization ---
-
-func TestNew(t *testing.T) {
-	mock := tmux.NewMockClient()
-	m := New(mock, false, nil)
-
-	if m.Mode() != ModeList {
-		t.Errorf("expected ModeList, got %d", m.Mode())
+func update(m *Model, msgs ...tea.Msg) *Model {
+	for _, msg := range msgs {
+		result, _ := m.Update(msg)
+		m = result.(*Model)
 	}
-	if m.Cursor() != 0 {
-		t.Errorf("expected cursor 0, got %d", m.Cursor())
-	}
-	if m.Width() != 80 {
-		t.Errorf("expected width 80, got %d", m.Width())
-	}
-}
-
-func TestInit_ReturnsCommand(t *testing.T) {
-	mock := tmux.NewMockClient()
-	m := New(mock, false, nil)
-	cmd := m.Init()
-	if cmd == nil {
-		t.Error("Init() should return a command")
-	}
-}
-
-// --- Window resize ---
-
-func TestWindowResize(t *testing.T) {
-	m, _ := testModel()
-	result, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	model := result.(*Model)
-
-	if model.Width() != 120 {
-		t.Errorf("expected width 120, got %d", model.Width())
-	}
-}
-
-// --- Sessions message ---
-
-func TestSessionsMsg(t *testing.T) {
-	m, _ := testModel()
-	sessions := []tmux.Session{
-		{Name: "one", WindowCount: 1, Attached: false},
-	}
-
-	result, _ := m.Update(sessionsMsg{sessions: sessions})
-	model := result.(*Model)
-
-	if len(model.Sessions()) != 1 {
-		t.Errorf("expected 1 session, got %d", len(model.Sessions()))
-	}
-}
-
-func TestSessionsMsg_CursorClamp(t *testing.T) {
-	m, _ := testModel()
-	m.cursor = 10
-
-	result, _ := m.Update(sessionsMsg{sessions: []tmux.Session{
-		{Name: "only", WindowCount: 1, Attached: false},
-	}})
-	model := result.(*Model)
-
-	if model.Cursor() != 0 {
-		t.Errorf("expected cursor clamped to 0, got %d", model.Cursor())
-	}
-}
-
-func TestSessionsMsg_EmptyList(t *testing.T) {
-	m, _ := testModel()
-	m.cursor = 2
-
-	result, _ := m.Update(sessionsMsg{sessions: nil})
-	model := result.(*Model)
-
-	if model.Cursor() != 0 {
-		t.Errorf("expected cursor 0 for empty list, got %d", model.Cursor())
-	}
-}
-
-func TestSessionsMsg_WithError(t *testing.T) {
-	m, _ := testModel()
-	testErr := errors.New("connection refused")
-
-	result, _ := m.Update(sessionsMsg{err: testErr})
-	model := result.(*Model)
-
-	if model.Err() == nil {
-		t.Error("expected error to be set")
-	}
+	return m
 }
 
 // --- Navigation ---
 
-func TestNavigation_Down(t *testing.T) {
-	m, _ := testModel()
-	result, _ := m.Update(key("j"))
-	model := result.(*Model)
-	if model.Cursor() != 1 {
-		t.Errorf("expected cursor 1, got %d", model.Cursor())
+func TestNavigation(t *testing.T) {
+	m := update(newTestModel(), key("j"))
+	if m.Cursor() != 1 {
+		t.Errorf("j: want cursor 1, got %d", m.Cursor())
+	}
+
+	m = update(m, key("k"))
+	if m.Cursor() != 0 {
+		t.Errorf("k: want cursor 0, got %d", m.Cursor())
+	}
+
+	m = update(newTestModel(), special(tea.KeyDown))
+	if m.Cursor() != 1 {
+		t.Errorf("down: want cursor 1, got %d", m.Cursor())
+	}
+
+	m = update(newTestModel(), special(tea.KeyUp))
+	if m.Cursor() != 0 {
+		t.Error("up at 0 should stay 0")
 	}
 }
 
-func TestNavigation_Up(t *testing.T) {
-	m, _ := testModel()
-	m.cursor = 2
-	result, _ := m.Update(key("k"))
-	model := result.(*Model)
-	if model.Cursor() != 1 {
-		t.Errorf("expected cursor 1, got %d", model.Cursor())
+func TestNavigation_Bounds(t *testing.T) {
+	m := newTestModel()
+	m = update(m, key("j"), key("j"), key("j"), key("j"))
+	if m.Cursor() != 2 {
+		t.Errorf("should clamp at last index, got %d", m.Cursor())
 	}
 }
 
-func TestNavigation_DownArrow(t *testing.T) {
-	m, _ := testModel()
-	result, _ := m.Update(specialKey(tea.KeyDown))
-	model := result.(*Model)
-	if model.Cursor() != 1 {
-		t.Errorf("expected cursor 1, got %d", model.Cursor())
-	}
-}
+// --- Switch ---
 
-func TestNavigation_UpArrow(t *testing.T) {
-	m, _ := testModel()
-	m.cursor = 1
-	result, _ := m.Update(specialKey(tea.KeyUp))
+func TestSwitch(t *testing.T) {
+	m := newTestModel()
+	result, cmd := m.Update(special(tea.KeyEnter))
 	model := result.(*Model)
-	if model.Cursor() != 0 {
-		t.Errorf("expected cursor 0, got %d", model.Cursor())
+	if model.Action().Kind != "switch" || model.Action().Target != "main" {
+		t.Errorf("want switch/main, got %v", model.Action())
 	}
-}
-
-func TestNavigation_BoundsTop(t *testing.T) {
-	m, _ := testModel()
-	m.cursor = 0
-	result, _ := m.Update(key("k"))
-	model := result.(*Model)
-	if model.Cursor() != 0 {
-		t.Errorf("cursor should not go below 0, got %d", model.Cursor())
-	}
-}
-
-func TestNavigation_BoundsBottom(t *testing.T) {
-	m, _ := testModel()
-	m.cursor = 2 // last index
-	result, _ := m.Update(key("j"))
-	model := result.(*Model)
-	if model.Cursor() != 2 {
-		t.Errorf("cursor should not exceed last index, got %d", model.Cursor())
+	if cmd == nil {
+		t.Error("should quit")
 	}
 }
 
 // --- Quit ---
 
-func TestQuit_Q(t *testing.T) {
-	m, _ := testModel()
+func TestQuit(t *testing.T) {
+	m := newTestModel()
 	_, cmd := m.Update(key("q"))
 	if cmd == nil {
-		t.Error("q should produce quit command")
+		t.Error("q should quit")
+	}
+	if m.Action().Kind != "" {
+		t.Error("quit should have no action")
 	}
 }
 
 func TestQuit_Esc(t *testing.T) {
-	m, _ := testModel()
-	_, cmd := m.Update(specialKey(tea.KeyEscape))
+	_, cmd := newTestModel().Update(special(tea.KeyEscape))
 	if cmd == nil {
-		t.Error("esc should produce quit command")
+		t.Error("esc should quit")
 	}
 }
 
-// --- Mode transitions ---
+// --- Create mode ---
 
-func TestEnterCreateMode(t *testing.T) {
-	m, _ := testModel()
-	result, _ := m.Update(key("n"))
+func TestCreate(t *testing.T) {
+	m := update(newTestModel(), key("n"))
+	if m.Mode() != ModeCreate {
+		t.Error("n should enter create mode")
+	}
+
+	m = update(m, key("d"), key("e"), key("v"))
+	if m.Input() != "dev" {
+		t.Errorf("want input 'dev', got %q", m.Input())
+	}
+
+	result, cmd := m.Update(special(tea.KeyEnter))
 	model := result.(*Model)
-	if model.Mode() != ModeCreate {
-		t.Errorf("expected ModeCreate, got %d", model.Mode())
-	}
-	if model.Input() != "" {
-		t.Error("input should be empty on entering create mode")
-	}
-}
-
-func TestEnterRenameMode(t *testing.T) {
-	m, _ := testModel()
-	m.cursor = 1 // api-server
-	result, _ := m.Update(key("r"))
-	model := result.(*Model)
-	if model.Mode() != ModeRename {
-		t.Errorf("expected ModeRename, got %d", model.Mode())
-	}
-	if model.Input() != "api-server" {
-		t.Errorf("expected input pre-filled with 'api-server', got %q", model.Input())
-	}
-}
-
-func TestEnterRenameMode_EmptySessions(t *testing.T) {
-	m, _ := testModel()
-	m.sessions = nil
-	result, _ := m.Update(key("r"))
-	model := result.(*Model)
-	if model.Mode() != ModeList {
-		t.Error("should stay in list mode with no sessions")
-	}
-}
-
-func TestEnterConfirmKill(t *testing.T) {
-	m, _ := testModel()
-	m.cursor = 1
-	result, _ := m.Update(key("x"))
-	model := result.(*Model)
-	if model.Mode() != ModeConfirmKill {
-		t.Errorf("expected ModeConfirmKill, got %d", model.Mode())
-	}
-	if model.KillName() != "api-server" {
-		t.Errorf("expected killName 'api-server', got %q", model.KillName())
-	}
-}
-
-func TestEnterConfirmKill_EmptySessions(t *testing.T) {
-	m, _ := testModel()
-	m.sessions = nil
-	result, _ := m.Update(key("x"))
-	model := result.(*Model)
-	if model.Mode() != ModeList {
-		t.Error("should stay in list mode with no sessions")
-	}
-}
-
-// --- Input handling ---
-
-func TestInput_TypeCharacters(t *testing.T) {
-	m, _ := testModel()
-	m.mode = ModeCreate
-
-	for _, ch := range "test" {
-		result, _ := m.Update(key(string(ch)))
-		m = result.(*Model)
-	}
-
-	if m.Input() != "test" {
-		t.Errorf("expected 'test', got %q", m.Input())
-	}
-}
-
-func TestInput_Backspace(t *testing.T) {
-	m, _ := testModel()
-	m.mode = ModeCreate
-	m.input = "test"
-
-	result, _ := m.Update(specialKey(tea.KeyBackspace))
-	model := result.(*Model)
-
-	if model.Input() != "tes" {
-		t.Errorf("expected 'tes', got %q", model.Input())
-	}
-}
-
-func TestInput_BackspaceEmpty(t *testing.T) {
-	m, _ := testModel()
-	m.mode = ModeCreate
-	m.input = ""
-
-	result, _ := m.Update(specialKey(tea.KeyBackspace))
-	model := result.(*Model)
-
-	if model.Input() != "" {
-		t.Error("backspace on empty should stay empty")
-	}
-}
-
-func TestInput_EscCancels(t *testing.T) {
-	m, _ := testModel()
-	m.mode = ModeCreate
-	m.input = "partial"
-
-	result, _ := m.Update(specialKey(tea.KeyEscape))
-	model := result.(*Model)
-
-	if model.Mode() != ModeList {
-		t.Error("esc should return to list mode")
-	}
-	if model.Input() != "" {
-		t.Error("input should be cleared on cancel")
-	}
-}
-
-func TestInput_EnterEmpty(t *testing.T) {
-	m, _ := testModel()
-	m.mode = ModeCreate
-	m.input = ""
-
-	result, cmd := m.Update(specialKey(tea.KeyEnter))
-	model := result.(*Model)
-
-	if cmd != nil {
-		t.Error("enter with empty input should not produce a command")
-	}
-	if model.Mode() != ModeCreate {
-		t.Error("should stay in create mode with empty input")
-	}
-}
-
-func TestInput_IgnoresControlChars(t *testing.T) {
-	m, _ := testModel()
-	m.mode = ModeCreate
-	m.input = ""
-
-	// Tab and other control characters should be ignored
-	result, _ := m.Update(specialKey(tea.KeyTab))
-	model := result.(*Model)
-
-	if model.Input() != "" {
-		t.Error("control characters should be ignored")
-	}
-}
-
-// --- Create mode submit ---
-
-func TestCreate_Submit(t *testing.T) {
-	m, _ := testModel()
-	m.mode = ModeCreate
-	m.input = "new-session"
-
-	_, cmd := m.Update(specialKey(tea.KeyEnter))
-	if cmd == nil {
-		t.Error("enter with input should produce a command")
-	}
-
-	// Execute the command to get the operationMsg
-	msg := cmd()
-	op, ok := msg.(operationMsg)
-	if !ok {
-		t.Fatal("expected operationMsg")
-	}
-	if op.err != nil {
-		t.Errorf("unexpected error: %v", op.err)
-	}
-	if op.switchTo != "new-session" {
-		t.Errorf("expected switchTo 'new-session', got %q", op.switchTo)
-	}
-}
-
-// --- Rename mode submit ---
-
-func TestRename_Submit(t *testing.T) {
-	m, _ := testModel()
-	m.mode = ModeRename
-	m.input = "renamed"
-	m.cursor = 0 // "main"
-
-	_, cmd := m.Update(specialKey(tea.KeyEnter))
-	if cmd == nil {
-		t.Error("enter should produce a command")
-	}
-
-	msg := cmd()
-	op, ok := msg.(operationMsg)
-	if !ok {
-		t.Fatal("expected operationMsg")
-	}
-	if op.err != nil {
-		t.Errorf("unexpected error: %v", op.err)
-	}
-}
-
-// --- Confirm kill ---
-
-func TestConfirmKill_Yes(t *testing.T) {
-	m, mock := testModel()
-	m.mode = ModeConfirmKill
-	m.killName = "notes"
-
-	_, cmd := m.Update(key("y"))
-	if cmd == nil {
-		t.Error("y should produce kill command")
-	}
-
-	msg := cmd()
-	op := msg.(operationMsg)
-	if op.err != nil {
-		t.Errorf("unexpected error: %v", op.err)
-	}
-
-	// Verify the session was killed in the mock
-	if len(mock.KillCalls) != 1 || mock.KillCalls[0] != "notes" {
-		t.Errorf("expected KillCalls=[notes], got %v", mock.KillCalls)
-	}
-}
-
-func TestConfirmKill_Enter(t *testing.T) {
-	m, _ := testModel()
-	m.mode = ModeConfirmKill
-	m.killName = "notes"
-
-	_, cmd := m.Update(specialKey(tea.KeyEnter))
-	if cmd == nil {
-		t.Error("enter should confirm kill")
-	}
-}
-
-func TestConfirmKill_No(t *testing.T) {
-	m, _ := testModel()
-	m.mode = ModeConfirmKill
-	m.killName = "notes"
-
-	result, _ := m.Update(key("n"))
-	model := result.(*Model)
-
-	if model.Mode() != ModeList {
-		t.Error("n should return to list mode")
-	}
-	if model.KillName() != "" {
-		t.Error("killName should be cleared")
-	}
-}
-
-func TestConfirmKill_Esc(t *testing.T) {
-	m, _ := testModel()
-	m.mode = ModeConfirmKill
-	m.killName = "notes"
-
-	result, _ := m.Update(specialKey(tea.KeyEscape))
-	model := result.(*Model)
-
-	if model.Mode() != ModeList {
-		t.Error("esc should return to list mode")
-	}
-}
-
-// --- Operation message ---
-
-func TestOperationMsg_Success(t *testing.T) {
-	m, _ := testModel()
-	m.mode = ModeCreate
-	m.input = "something"
-
-	result, cmd := m.Update(operationMsg{err: nil})
-	model := result.(*Model)
-
-	if model.Mode() != ModeList {
-		t.Error("should return to list mode")
-	}
-	if model.Input() != "" {
-		t.Error("input should be cleared")
+	if model.Action().Kind != "new" || model.Action().Target != "dev" {
+		t.Errorf("want new/dev, got %v", model.Action())
 	}
 	if cmd == nil {
-		t.Error("should produce refresh command")
+		t.Error("should quit after create")
 	}
 }
 
-func TestOperationMsg_WithSwitch(t *testing.T) {
-	m, _ := testModel()
-	result, cmd := m.Update(operationMsg{switchTo: "new"})
-	model := result.(*Model)
-
-	if !model.IsQuitting() {
-		t.Error("should be quitting after switch")
-	}
-	if cmd == nil {
-		t.Error("should produce quit command")
-	}
-}
-
-func TestOperationMsg_Error(t *testing.T) {
-	m, _ := testModel()
-	testErr := errors.New("failed")
-
-	result, _ := m.Update(operationMsg{err: testErr})
-	model := result.(*Model)
-
-	if model.Err() == nil {
-		t.Error("error should be set")
-	}
-	if model.Mode() != ModeList {
-		t.Error("should return to list mode even on error")
-	}
-}
-
-// --- Switch session ---
-
-func TestSwitch_Enter(t *testing.T) {
-	m, mock := testModel()
-	m.cursor = 1 // api-server
-
-	_, cmd := m.Update(specialKey(tea.KeyEnter))
-	if cmd == nil {
-		t.Error("enter should produce switch command")
-	}
-
-	msg := cmd()
-	op := msg.(operationMsg)
-	if op.switchTo != "api-server" {
-		t.Errorf("expected switchTo 'api-server', got %q", op.switchTo)
-	}
-	if len(mock.SwitchCalls) != 1 || mock.SwitchCalls[0] != "api-server" {
-		t.Errorf("expected SwitchCalls=[api-server], got %v", mock.SwitchCalls)
-	}
-}
-
-func TestSwitch_EmptySessions(t *testing.T) {
-	m, _ := testModel()
-	m.sessions = nil
-
-	_, cmd := m.Update(specialKey(tea.KeyEnter))
-	if cmd != nil {
-		t.Error("enter with no sessions should not produce a command")
-	}
-}
-
-// --- Error clearing on mode change ---
-
-func TestErrorClearedOnModeChange(t *testing.T) {
-	m, _ := testModel()
-	m.err = errors.New("stale error")
-
-	result, _ := m.Update(key("n"))
-	model := result.(*Model)
-
-	if model.Err() != nil {
-		t.Error("error should be cleared when entering create mode")
-	}
-}
-
-// --- Setup mode ---
-
-func TestNew_WithSetup(t *testing.T) {
-	mock := tmux.NewMockClient()
-	m := New(mock, true, nil)
-	if m.Mode() != ModeSetup {
-		t.Errorf("expected ModeSetup, got %d", m.Mode())
-	}
-}
-
-func TestNew_WithoutSetup(t *testing.T) {
-	mock := tmux.NewMockClient()
-	m := New(mock, false, nil)
+func TestCreate_Cancel(t *testing.T) {
+	m := update(newTestModel(), key("n"), key("d"))
+	m = update(m, special(tea.KeyEscape))
 	if m.Mode() != ModeList {
-		t.Errorf("expected ModeList, got %d", m.Mode())
+		t.Error("esc should return to list")
 	}
 }
 
-func TestSetup_AcceptY(t *testing.T) {
-	mock := tmux.NewMockClient()
-	called := false
-	setupFn := func() error { called = true; return nil }
-	m := New(mock, true, setupFn)
+func TestCreate_Backspace(t *testing.T) {
+	m := update(newTestModel(), key("n"), key("a"), key("b"))
+	m = update(m, special(tea.KeyBackspace))
+	if m.Input() != "a" {
+		t.Errorf("want 'a', got %q", m.Input())
+	}
+}
 
-	_, cmd := m.Update(key("y"))
+func TestCreate_EmptyEnter(t *testing.T) {
+	m := update(newTestModel(), key("n"))
+	_, cmd := m.Update(special(tea.KeyEnter))
+	if cmd != nil {
+		t.Error("empty enter should not quit")
+	}
+}
+
+// --- Rename ---
+
+func TestRename(t *testing.T) {
+	m := update(newTestModel(), key("r"))
+	if m.Mode() != ModeRename {
+		t.Error("r should enter rename mode")
+	}
+	if m.Input() != "main" {
+		t.Errorf("should prefill with 'main', got %q", m.Input())
+	}
+}
+
+// --- Kill ---
+
+func TestKill(t *testing.T) {
+	m := update(newTestModel(), key("x"))
+	if m.Mode() != ModeConfirmKill {
+		t.Error("x should enter confirm mode")
+	}
+
+	result, cmd := m.Update(key("y"))
+	model := result.(*Model)
+	if model.Action().Kind != "kill" || model.Action().Target != "main" {
+		t.Errorf("want kill/main, got %v", model.Action())
+	}
 	if cmd == nil {
-		t.Fatal("y should produce setup command")
-	}
-	msg := cmd()
-	if !called {
-		t.Error("setup function should have been called")
-	}
-	result, _ := m.Update(msg)
-	model := result.(*Model)
-	if model.Mode() != ModeList {
-		t.Errorf("expected ModeList after setup, got %d", model.Mode())
+		t.Error("should quit after kill")
 	}
 }
 
-func TestSetup_AcceptEnter(t *testing.T) {
-	mock := tmux.NewMockClient()
-	setupFn := func() error { return nil }
-	m := New(mock, true, setupFn)
-
-	_, cmd := m.Update(specialKey(tea.KeyEnter))
-	if cmd == nil {
-		t.Error("enter should produce setup command")
-	}
-}
-
-func TestSetup_Skip(t *testing.T) {
-	mock := tmux.NewMockClient()
-	m := New(mock, true, nil)
-
-	result, _ := m.Update(key("n"))
-	model := result.(*Model)
-	if model.Mode() != ModeList {
-		t.Errorf("expected ModeList after skip, got %d", model.Mode())
-	}
-}
-
-func TestSetup_SkipEsc(t *testing.T) {
-	mock := tmux.NewMockClient()
-	m := New(mock, true, nil)
-
-	result, _ := m.Update(specialKey(tea.KeyEscape))
-	model := result.(*Model)
-	if model.Mode() != ModeList {
-		t.Error("esc should skip to list mode")
-	}
-}
-
-func TestSetup_Error(t *testing.T) {
-	mock := tmux.NewMockClient()
-	setupFn := func() error { return errors.New("permission denied") }
-	m := New(mock, true, setupFn)
-
-	_, cmd := m.Update(key("y"))
-	msg := cmd()
-	result, _ := m.Update(msg)
-	model := result.(*Model)
-
-	if model.Err() == nil {
-		t.Error("setup error should be set")
-	}
-	if model.Mode() != ModeList {
-		t.Error("should return to list mode even on error")
+func TestKill_Cancel(t *testing.T) {
+	m := update(newTestModel(), key("x"))
+	m = update(m, key("n"))
+	if m.Mode() != ModeList {
+		t.Error("n should cancel kill")
 	}
 }
 
 // --- Detach ---
 
 func TestDetach(t *testing.T) {
-	m, mock := testModel()
-
-	_, cmd := m.Update(key("d"))
-	if cmd == nil {
-		t.Fatal("d should produce detach command")
-	}
-
-	msg := cmd()
-	op := msg.(operationMsg)
-	if op.err != nil {
-		t.Errorf("unexpected error: %v", op.err)
-	}
-	if mock.DetachCalls != 1 {
-		t.Errorf("expected 1 DetachCall, got %d", mock.DetachCalls)
-	}
-
-	// Should quit after detach
-	result, _ := m.Update(msg)
+	m := newTestModel()
+	result, cmd := m.Update(key("d"))
 	model := result.(*Model)
-	if !model.IsQuitting() {
+	if model.Action().Kind != "detach" {
+		t.Errorf("want detach, got %v", model.Action())
+	}
+	if cmd == nil {
 		t.Error("should quit after detach")
 	}
 }
 
-// --- Rename duplicate warning ---
+// --- Empty sessions ---
 
-func TestRename_DuplicateName(t *testing.T) {
-	m, _ := testModel()
-	m.mode = ModeRename
-	m.input = "api-server" // already exists
-	m.cursor = 0           // renaming "main"
-
-	result, cmd := m.Update(specialKey(tea.KeyEnter))
-	model := result.(*Model)
-
+func TestEmptySessions(t *testing.T) {
+	m := New(nil)
+	_, cmd := m.Update(special(tea.KeyEnter))
 	if cmd != nil {
-		t.Error("should not produce command for duplicate name")
-	}
-	if model.Warning() == "" {
-		t.Error("should set warning for duplicate name")
-	}
-	if model.Mode() != ModeRename {
-		t.Error("should stay in rename mode")
-	}
-}
-
-func TestCreate_DuplicateName(t *testing.T) {
-	m, _ := testModel()
-	m.mode = ModeCreate
-	m.input = "main" // already exists
-
-	result, cmd := m.Update(specialKey(tea.KeyEnter))
-	model := result.(*Model)
-
-	if cmd != nil {
-		t.Error("should not produce command for duplicate name")
-	}
-	if model.Warning() == "" {
-		t.Error("should set warning for duplicate name")
-	}
-	if model.Mode() != ModeCreate {
-		t.Error("should stay in create mode")
-	}
-}
-
-func TestRename_WarningClearsOnType(t *testing.T) {
-	m, _ := testModel()
-	m.mode = ModeRename
-	m.warning = "stale warning"
-
-	result, _ := m.Update(key("a"))
-	model := result.(*Model)
-
-	if model.Warning() != "" {
-		t.Error("warning should clear on typing")
-	}
-}
-
-func TestRename_WarningClearsOnBackspace(t *testing.T) {
-	m, _ := testModel()
-	m.mode = ModeRename
-	m.input = "test"
-	m.warning = "stale warning"
-
-	result, _ := m.Update(specialKey(tea.KeyBackspace))
-	model := result.(*Model)
-
-	if model.Warning() != "" {
-		t.Error("warning should clear on backspace")
-	}
-}
-
-func TestRename_UniqueName(t *testing.T) {
-	m, _ := testModel()
-	m.mode = ModeRename
-	m.input = "unique-name"
-	m.cursor = 0
-
-	_, cmd := m.Update(specialKey(tea.KeyEnter))
-	if cmd == nil {
-		t.Error("should produce command for unique name")
+		t.Error("enter with no sessions should not quit")
 	}
 }
