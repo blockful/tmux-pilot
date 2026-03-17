@@ -1,0 +1,263 @@
+package tui
+
+import (
+	"github.com/blockful/tmux-pilot/internal/tmux"
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+// Mode represents the current UI mode.
+type Mode int
+
+const (
+	ModeList        Mode = iota // Browsing sessions
+	ModeCreate                  // Typing a new session name
+	ModeRename                  // Typing a new name for existing session
+	ModeConfirmKill             // Confirming session kill
+)
+
+// sessionsMsg carries a refreshed session list.
+type sessionsMsg struct {
+	sessions []tmux.Session
+	err      error
+}
+
+// operationMsg signals that an async tmux operation completed.
+type operationMsg struct {
+	err      error
+	switchTo string // if non-empty, quit after switching
+}
+
+// Model is the BubbleTea model for tmux-pilot.
+type Model struct {
+	client  tmux.Client
+	sessions []tmux.Session
+	cursor   int
+	mode     Mode
+	input    string
+	killName string // session name pending kill confirmation
+	err      error
+	width    int
+	height   int
+	quitting bool
+}
+
+// New creates a Model wired to the given tmux client.
+func New(client tmux.Client) *Model {
+	return &Model{
+		client: client,
+		width:  80,
+		height: 24,
+	}
+}
+
+// Init fetches the initial session list.
+func (m *Model) Init() tea.Cmd {
+	return m.fetchSessions()
+}
+
+// Update processes messages and returns the updated model + next command.
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
+
+	case sessionsMsg:
+		m.sessions = msg.sessions
+		m.err = msg.err
+		m.clampCursor()
+		return m, nil
+
+	case operationMsg:
+		if msg.err != nil {
+			m.err = msg.err
+		}
+		m.mode = ModeList
+		m.input = ""
+		m.killName = ""
+		if msg.switchTo != "" {
+			m.quitting = true
+			return m, tea.Quit
+		}
+		return m, m.fetchSessions()
+
+	case tea.KeyMsg:
+		return m.handleKey(msg)
+	}
+
+	return m, nil
+}
+
+// handleKey dispatches key presses to the current mode handler.
+func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	switch m.mode {
+	case ModeList:
+		return m.handleListKey(key)
+	case ModeCreate:
+		return m.handleInputKey(key, m.doCreate)
+	case ModeRename:
+		return m.handleInputKey(key, m.doRename)
+	case ModeConfirmKill:
+		return m.handleConfirmKey(key)
+	}
+	return m, nil
+}
+
+// handleListKey handles keys in the session list view.
+func (m *Model) handleListKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "q", "esc":
+		m.quitting = true
+		return m, tea.Quit
+	case "up", "k":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	case "down", "j":
+		if m.cursor < len(m.sessions)-1 {
+			m.cursor++
+		}
+	case "enter":
+		if len(m.sessions) > 0 {
+			name := m.sessions[m.cursor].Name
+			return m, m.switchSession(name)
+		}
+	case "n":
+		m.mode = ModeCreate
+		m.input = ""
+		m.err = nil
+	case "r":
+		if len(m.sessions) > 0 {
+			m.mode = ModeRename
+			m.input = m.sessions[m.cursor].Name
+			m.err = nil
+		}
+	case "x":
+		if len(m.sessions) > 0 {
+			m.mode = ModeConfirmKill
+			m.killName = m.sessions[m.cursor].Name
+			m.err = nil
+		}
+	}
+	return m, nil
+}
+
+// handleInputKey handles keys in create/rename modes.
+// submit is called when enter is pressed with non-empty input.
+func (m *Model) handleInputKey(key string, submit func() tea.Cmd) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.mode = ModeList
+		m.input = ""
+		return m, nil
+	case "enter":
+		if m.input != "" {
+			return m, submit()
+		}
+		return m, nil
+	case "backspace":
+		if len(m.input) > 0 {
+			m.input = m.input[:len(m.input)-1]
+		}
+		return m, nil
+	default:
+		if len(key) == 1 && key[0] >= ' ' && key[0] <= '~' {
+			m.input += key
+		}
+		return m, nil
+	}
+}
+
+// handleConfirmKey handles keys in the kill confirmation dialog.
+func (m *Model) handleConfirmKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "y", "enter":
+		name := m.killName
+		return m, m.killSession(name)
+	case "n", "esc":
+		m.mode = ModeList
+		m.killName = ""
+		return m, nil
+	}
+	return m, nil
+}
+
+// clampCursor ensures the cursor stays within bounds.
+func (m *Model) clampCursor() {
+	if len(m.sessions) == 0 {
+		m.cursor = 0
+	} else if m.cursor >= len(m.sessions) {
+		m.cursor = len(m.sessions) - 1
+	}
+}
+
+// --- Async commands ---
+
+func (m *Model) fetchSessions() tea.Cmd {
+	return func() tea.Msg {
+		sessions, err := m.client.ListSessions()
+		return sessionsMsg{sessions: sessions, err: err}
+	}
+}
+
+func (m *Model) doCreate() tea.Cmd {
+	name := m.input
+	return func() tea.Msg {
+		if err := m.client.NewSession(name); err != nil {
+			return operationMsg{err: err}
+		}
+		return operationMsg{switchTo: name}
+	}
+}
+
+func (m *Model) doRename() tea.Cmd {
+	oldName := m.sessions[m.cursor].Name
+	newName := m.input
+	return func() tea.Msg {
+		err := m.client.RenameSession(oldName, newName)
+		return operationMsg{err: err}
+	}
+}
+
+func (m *Model) switchSession(name string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.SwitchSession(name)
+		return operationMsg{err: err, switchTo: name}
+	}
+}
+
+func (m *Model) killSession(name string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.KillSession(name)
+		return operationMsg{err: err}
+	}
+}
+
+// --- Getters for view and testing ---
+
+// Mode returns the current UI mode.
+func (m *Model) Mode() Mode { return m.mode }
+
+// Sessions returns the current session list.
+func (m *Model) Sessions() []tmux.Session { return m.sessions }
+
+// Cursor returns the current cursor position.
+func (m *Model) Cursor() int { return m.cursor }
+
+// Input returns the current input buffer.
+func (m *Model) Input() string { return m.input }
+
+// KillName returns the name of the session pending kill confirmation.
+func (m *Model) KillName() string { return m.killName }
+
+// Err returns the current error, if any.
+func (m *Model) Err() error { return m.err }
+
+// Width returns the terminal width.
+func (m *Model) Width() int { return m.width }
+
+// IsQuitting returns true if the model is in quitting state.
+func (m *Model) IsQuitting() bool { return m.quitting }
