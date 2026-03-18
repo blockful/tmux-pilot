@@ -55,6 +55,21 @@ changelog:
     - title: Others
       order: 999
 
+brews:
+  - repository:
+      owner: blockful
+      name: homebrew-tmux-pilot
+    commit_author:
+      name: goreleaser
+      email: goreleaser@blockful.io
+    homepage: "https://github.com/blockful/tmux-pilot"
+    description: "A minimal TUI for managing tmux sessions"
+    license: "MIT"
+    install: |
+      bin.install "tmux-pilot"
+    test: |
+      assert_match "tmux-pilot", shell_output("#{bin}/tmux-pilot --version")
+
 release:
   draft: false
   prerelease: auto
