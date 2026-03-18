@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,8 +60,6 @@ func hasSession(sessions []tmux.Session, name string) bool {
 	}
 	return false
 }
-
-var _ = fmt.Sprintf // ensure fmt is used
 
 func TestState_Navigation(t *testing.T) {
 	sessions := []tmux.Session{
