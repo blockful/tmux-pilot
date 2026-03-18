@@ -1,173 +1,107 @@
-# Architecture: Raw ANSI TUI Rewrite
+# Architecture
 
 ## Overview
 
-Complete rewrite of `internal/tui/` to replace BubbleTea framework with raw ANSI escape sequences and `golang.org/x/term` for terminal control. Zero external dependencies except `golang.org/x/term`.
+tmux-pilot is a terminal picker for tmux sessions. ~1000 lines of Go, one dependency (`golang.org/x/term`).
 
-## Problem Statement
-
-Current BubbleTea implementation has reliability issues in nested tmux environments:
-- Alt screen escape sequences leak through PTY layers over SSH
-- `tea.WithInputTTY()` opens `/dev/tty` separately, racing with tmux's PTY handling
-- Framework overhead for a simple session picker
-- Dependency bloat (14 transitive dependencies)
-
-## Solution Architecture
-
-### Core Principles
-1. **Single I/O stream**: Read stdin directly, write to stdout. No separate `/dev/tty` access.
-2. **In-place rendering**: No alt screen mode. Draw in current terminal, clean up on exit.
-3. **Direct ANSI control**: Manual escape sequences for cursor movement, colors, line clearing.
-4. **Graceful cleanup**: Always restore terminal state, even on panic/signals.
-
-### Component Boundaries
+## Project Structure
 
 ```
-cmd/main.go
-├── Parse CLI flags (manual parsing)
-├── Handle --list mode (bypass TUI)
-└── Create TUI → Execute actions
-
-internal/tmux/
-├── ClientOptions struct (socket config)
-├── All functions accept ClientOptions
-└── Thread socket flags through exec.Command
-
-internal/tui/ (COMPLETE REWRITE)
-├── Terminal: raw mode + ANSI control
-├── Renderer: direct stdout writes  
-├── InputHandler: stdin key processing
-└── StateMachine: mode transitions
+cmd/main.go              Entry point: flag parsing, orchestration
+internal/tmux/            tmux interaction layer
+  ├── client.go           All tmux commands (list, switch, kill, etc.)
+  ├── client_test.go      Tests
+  └── types.go            Session struct, ClientOptions
+internal/tui/             Terminal UI (raw ANSI, no framework)
+  ├── terminal.go         Raw mode, signal handling
+  ├── input.go            Keystroke reading, escape sequence parsing
+  ├── render.go           ANSI output, colors, screen drawing
+  ├── picker.go           Main loop, state machine, event handling
+  ├── input_test.go
+  ├── picker_test.go
+  └── render_test.go
+docs/                     This documentation
+install.sh                curl installer / updater / uninstaller
 ```
-
-### New CLI Interface
-
-```bash
-# Basic usage
-tmux-pilot
-
-# Custom sockets (threaded to tmux commands)
-tmux-pilot -S /tmp/custom-socket
-tmux-pilot -L session-name
-
-# Non-interactive TSV output  
-tmux-pilot --list
-# Output: name\twindows\tattached/detached
-
-# Flags
-tmux-pilot --help        # usage + keybindings + examples
-tmux-pilot --version     # version info
-tmux-pilot --no-color    # disable colors
-NO_COLOR=1 tmux-pilot    # also disables colors
-```
-
-### Exit Codes
-- `0`: Success or user quit
-- `1`: Error (tmux not found, invalid args, etc)
-- `130`: SIGINT (Ctrl-C)
 
 ## Data Flow
 
-### Interactive Mode
 ```
-1. Parse flags → ClientOptions
-2. tmux.ListSessions(opts) → []Session
-3. tui.Run(sessions, colorMode) → Action  
-4. execute(action, opts) → tmux commands
-```
-
-### List Mode (--list)
-```
-1. Parse flags → ClientOptions  
-2. tmux.ListSessions(opts) → []Session
-3. Print TSV to stdout
-4. Exit 0
-```
-
-## Implementation Plan
-
-### 1. Create ClientOptions in internal/tmux/
-```go
-type ClientOptions struct {
-    SocketPath string // -S flag
-    SocketName string // -L flag  
-}
-
-func (o ClientOptions) Args() []string {
-    var args []string
-    if o.SocketPath != "" {
-        args = append(args, "-S", o.SocketPath)
-    }
-    if o.SocketName != "" {
-        args = append(args, "-L", o.SocketName)  
-    }
-    return args
-}
+User runs `tp`
+  │
+  ├─ Parse CLI flags (manual, no library)
+  ├─ tmux.ListSessions() → []Session
+  │
+  ├─ [--list mode] → print TSV, exit
+  │
+  ├─ [interactive mode]
+  │    ├─ terminal.EnterRawMode()
+  │    ├─ Loop:
+  │    │    ├─ renderer.RenderUI() → draw in-place
+  │    │    ├─ input.ReadKey() → wait for keystroke
+  │    │    └─ state.handleKey() → update state or execute tmux command
+  │    │         ├─ kill/rename/create → execute inline, refresh list, stay in picker
+  │    │         └─ switch/quit → exit loop
+  │    ├─ renderer.Cleanup() → erase drawn lines
+  │    └─ terminal.Restore() → restore original terminal state
+  │
+  └─ execute action (switch-client or nothing)
 ```
 
-### 2. Update all tmux functions
-```go
-func ListSessions(opts ClientOptions) ([]Session, error)
-func SwitchOrAttach(name string, opts ClientOptions) error
-// etc...
-```
+## Key Design Decisions
 
-### 3. Rewrite internal/tui/ completely
-```go
-// terminal.go - raw mode control
-type Terminal struct {
-    originalState *term.State
-    width, height int
-}
+### No TUI framework
 
-func (t *Terminal) EnterRawMode() error
-func (t *Terminal) Restore() error
-func (t *Terminal) Size() (int, int)
+Previous version used BubbleTea. It broke inside tmux over SSH — alt screen leaks, input races, phantom newlines. Replaced with raw ANSI escape sequences. We control every byte.
 
-// renderer.go - ANSI output  
-type Renderer struct {
-    colorMode ColorMode
-}
+See: [decisions/001-drop-bubbletea-for-raw-ansi.md](decisions/001-drop-bubbletea-for-raw-ansi.md)
 
-func (r *Renderer) MoveCursor(x, y int)
-func (r *Renderer) ClearLine()  
-func (r *Renderer) SetColor(code int)
+### No alt screen
 
-// input.go - key processing
-func ReadKey() (Key, error)
+Alt screen (`\e[?1049h`) saves/restores the terminal buffer. Through SSH → tmux layers, the restore sequence often leaks, leaving blank screens. Instead we draw in-place and erase our lines on exit.
 
-// tui.go - main TUI controller
-func Run(sessions []Session, opts TUIOptions) (Action, error)
-```
+### Inline execution
 
-### 4. Manual flag parsing in cmd/main.go
-```go
-func parseArgs(args []string) (Config, error) {
-    // Manual parsing, no flag library
-    // Return struct with all options
-}
-```
+Kill, rename, and create don't exit the picker. They execute the tmux command, refresh the session list, and stay open. Only "switch to session" and "quit" exit the TUI.
 
-### 5. Update tests
-- Unit tests for new TUI components
-- Integration tests with `-S /tmp/test-socket`  
-- Signal handling tests
-- Color mode tests
+### Raw mode input
 
-## Security Considerations
+We read from `os.Stdin` in raw mode (`golang.org/x/term`). No opening `/dev/tty` separately — that races with tmux's PTY. One input source, one output destination.
 
-- Terminal state restoration is critical - any panic must restore
-- Input validation on session names (tmux injection prevention)
-- Bounded memory usage (session list size)
+### `\r\n` not `\n`
 
-## Performance Requirements
+In raw terminal mode, `\n` moves down but doesn't return to column 1. All output uses `\r\n` to avoid staircase rendering.
 
-- Startup time: <50ms on commodity hardware
-- Memory usage: <5MB resident  
-- Responsive input: <16ms key processing (60fps equivalent)
+### Socket threading
 
-## Compatibility
+All tmux functions accept `ClientOptions` with optional `-S`/`-L` socket config. This threads through every `exec.Command("tmux", ...)` call, enabling isolated tmux servers for both user workflows and testing.
 
-- Terminals: xterm, tmux, screen, modern terminal emulators
-- OS: Linux, macOS, BSDs (anywhere golang.org/x/term works)
-- tmux: 2.0+ (modern versions)
+## Terminal Rendering
+
+The renderer tracks how many lines it drew last frame (`lastHeight`). On re-render:
+1. Move cursor up `lastHeight` lines
+2. Clear and redraw each line
+3. If the new frame is shorter, clear leftover lines
+
+On exit, `Cleanup()` erases all drawn lines and restores cursor position.
+
+## Color
+
+Colors use ANSI 256-color codes. Disabled when:
+- `NO_COLOR` env var is set (any value)
+- `--no-color` flag
+- stdout is not a TTY
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success or user quit |
+| 1 | Error (bad args, tmux failure) |
+| 130 | SIGINT / Ctrl-C |
+
+## Testing
+
+- **Unit tests**: key parsing, ANSI output, state machine transitions, color modes
+- **Integration tests**: spin up isolated tmux servers (`-S /tmp/test.sock`), create/kill/rename real sessions, verify outcomes
+- No mocks for tmux — tests use real tmux with isolated sockets

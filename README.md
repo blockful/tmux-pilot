@@ -5,6 +5,8 @@ A minimal TUI for managing tmux sessions. No commands to memorize.
 [![CI](https://github.com/blockful/tmux-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/blockful/tmux-pilot/actions/workflows/ci.yml)
 
 ```
+$ tp
+
 ╭──────────────────────────────────────────╮
 │          tmux sessions                   │
 │                                          │
@@ -17,6 +19,14 @@ A minimal TUI for managing tmux sessions. No commands to memorize.
 r: rename  x: kill  q/Esc: quit
 tip: Ctrl-b d to detach from tmux
 ```
+
+`tp` is a shortcut for `tmux-pilot`, installed automatically.
+
+## Why
+
+tmux is essential for running long-lived processes on remote servers — coding agents, builds, anything you want to survive closing your laptop. But the commands are hard to remember. `tmux ls`, `tmux attach -t`, `tmux kill-session -t`... every time.
+
+tmux-pilot gives you a simple picker. No commands to memorize. Works reliably over SSH.
 
 ## Install
 
@@ -100,17 +110,11 @@ That's it. You see your sessions, you pick one.
 ### Examples
 
 ```bash
-tp                        # open the picker
-tp --list                 # non-interactive, TSV output
-tp -S /tmp/custom.sock    # use a specific tmux socket
-NO_COLOR=1 tp             # no colors
+$ tp                        # open the picker
+$ tp --list                 # non-interactive, TSV output
+$ tp -S /tmp/custom.sock    # use a specific tmux socket
+$ tp --version              # check installed version
 ```
-
-## Why
-
-tmux is essential for running long-lived processes on remote servers — coding agents, builds, anything you want to survive closing your laptop. But the commands are hard to remember. `tmux ls`, `tmux attach -t`, `tmux kill-session -t`... every time.
-
-tmux-pilot gives you a simple picker. No commands to memorize. Works reliably over SSH.
 
 ## How it works
 
