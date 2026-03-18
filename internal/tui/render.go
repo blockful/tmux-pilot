@@ -262,11 +262,7 @@ func (r *Renderer) fmtSession(s tmux.Session, selected bool, width int) string {
 	bdr := r.color(ColorBorder)
 	rst := r.reset()
 
-	// Build the visible content (no ANSI) to calculate padding
-	dot := "○"
-	if s.Attached {
-		dot = "●"
-	}
+	// Build visible content to calculate display width for padding.
 	status := "detached"
 	if s.Attached {
 		status = "attached"
@@ -275,11 +271,14 @@ func (r *Renderer) fmtSession(s tmux.Session, selected bool, width int) string {
 	if s.WindowCount != 1 {
 		winWord = "windows"
 	}
-	visible := fmt.Sprintf(" %s %-15s  %d %s   %s", dot, s.Name, s.WindowCount, winWord, status)
+	// Calculate display width using ASCII-only content (dot = 1 col).
+	// Format: " ● name            N windows   status"
+	infoText := fmt.Sprintf("%-15s  %d %s   %s", s.Name, s.WindowCount, winWord, status)
+	displayWidth := 1 + 1 + 1 + len(infoText) // space + dot(1col) + space + info
 
 	// Pad to fill the box width (subtract 2 for borders)
 	innerWidth := width - 2
-	padLen := innerWidth - len(visible)
+	padLen := innerWidth - displayWidth
 	if padLen < 0 {
 		padLen = 0
 	}
@@ -295,10 +294,11 @@ func (r *Renderer) fmtSession(s tmux.Session, selected bool, width int) string {
 	// Dot color
 	if s.Attached {
 		line.WriteString(r.color(ColorGreen))
+		line.WriteString(" ● ")
 	} else {
 		line.WriteString(r.color(ColorDim))
+		line.WriteString(" ○ ")
 	}
-	line.WriteString(fmt.Sprintf(" %s ", dot))
 
 	// Session info
 	if selected {
@@ -306,7 +306,7 @@ func (r *Renderer) fmtSession(s tmux.Session, selected bool, width int) string {
 	} else {
 		line.WriteString(r.color(ColorText))
 	}
-	line.WriteString(fmt.Sprintf("%-15s  %d %s   %s", s.Name, s.WindowCount, winWord, status))
+	line.WriteString(infoText)
 
 	// Padding (keep bg color for selection highlight)
 	line.WriteString(strings.Repeat(" ", padLen))
