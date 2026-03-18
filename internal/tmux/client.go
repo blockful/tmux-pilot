@@ -42,6 +42,11 @@ func NewSession(name string, opts ClientOptions) error {
 	return SwitchOrAttach(name, opts)
 }
 
+// NewSessionDetached creates a session without switching to it.
+func NewSessionDetached(name string, opts ClientOptions) error {
+	return run(opts, "new-session", "-d", "-s", name)
+}
+
 // RenameSession renames a session.
 func RenameSession(old, new string, opts ClientOptions) error {
 	return run(opts, "rename-session", "-t", old, new)

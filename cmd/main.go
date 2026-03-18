@@ -169,16 +169,12 @@ func printSessionsTSV(sessions []tmux.Session) {
 }
 
 // execute runs the action chosen by the user.
+// Only "switch" and "detach" exit the TUI — kill, rename, and create
+// are executed inline while the picker stays open.
 func execute(a tui.Action, opts tmux.ClientOptions) error {
 	switch a.Kind {
 	case "switch":
 		return tmux.SwitchOrAttach(a.Target, opts)
-	case "new":
-		return tmux.NewSession(a.Target, opts)
-	case "rename":
-		return tmux.RenameSession(a.Target, a.NewName, opts)
-	case "kill":
-		return tmux.KillSession(a.Target, opts)
 	case "detach":
 		return tmux.Detach(opts)
 	}

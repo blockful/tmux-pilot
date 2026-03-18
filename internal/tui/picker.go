@@ -18,29 +18,25 @@ const (
 )
 
 // Action is what the TUI tells the caller to do after exit.
+// Only "switch" and "detach" exit the TUI. Kill, rename, and create
+// are executed inline and the picker stays open.
 type Action struct {
-	Kind    string // "switch", "new", "rename", "kill", "detach", ""
+	Kind    string // "switch", "detach", ""
 	Target  string // session name
-	NewName string // for rename
-}
-
-// TUIOptions configures the TUI appearance and behavior.
-type TUIOptions struct {
-	ColorEnabled bool
 }
 
 // State holds the current TUI state.
 type State struct {
-	sessions     []tmux.Session
-	cursor       int
-	mode         Mode
-	input        string
-	warning      string
-	action       Action
-	clientOpts   tmux.ClientOptions
-	terminal     *Terminal
-	renderer     *Renderer
-	done         bool
+	sessions   []tmux.Session
+	cursor     int
+	mode       Mode
+	input      string
+	warning    string
+	action     Action
+	clientOpts tmux.ClientOptions
+	terminal   *Terminal
+	renderer   *Renderer
+	done       bool
 }
 
 // Run starts the TUI and returns the user's chosen action.
@@ -48,9 +44,7 @@ func Run(sessions []tmux.Session, colorEnabled bool, clientOpts tmux.ClientOptio
 	// Detect color mode
 	colorMode := ColorDisabled
 	if colorEnabled {
-		// Check for NO_COLOR environment variable
 		if os.Getenv("NO_COLOR") == "" {
-			// Check if stdout is a terminal
 			if fileInfo, _ := os.Stdout.Stat(); (fileInfo.Mode() & os.ModeCharDevice) != 0 {
 				colorMode = ColorEnabled
 			}
@@ -84,14 +78,12 @@ func Run(sessions []tmux.Session, colorEnabled bool, clientOpts tmux.ClientOptio
 
 	// Main event loop
 	for !state.done {
-		// Render current state
 		width, _ := state.terminal.Size()
 		if width < 50 {
 			width = 50
 		}
 		state.renderer.RenderUI(state.sessions, state.cursor, state.mode, state.input, state.warning, width)
 
-		// Read and handle input
 		key, err := ReadKey()
 		if err != nil {
 			return Action{}, fmt.Errorf("read key: %w", err)
@@ -103,6 +95,22 @@ func Run(sessions []tmux.Session, colorEnabled bool, clientOpts tmux.ClientOptio
 	}
 
 	return state.action, nil
+}
+
+// refreshSessions reloads the session list from tmux.
+func (s *State) refreshSessions() {
+	sessions, err := tmux.ListSessions(s.clientOpts)
+	if err != nil {
+		return // keep current list on error
+	}
+	s.sessions = sessions
+	// Clamp cursor to valid range
+	if s.cursor >= len(s.sessions) {
+		s.cursor = len(s.sessions) - 1
+	}
+	if s.cursor < 0 {
+		s.cursor = 0
+	}
 }
 
 // handleKey processes a single keystroke based on current mode.
@@ -139,8 +147,6 @@ func (s *State) handleListKey(key Key) error {
 	case KeyEscape:
 		s.done = true
 	case KeyCtrlC:
-		// In raw mode, Ctrl-C is byte 0x03, not SIGINT.
-		// Cleanup happens via defer in Run(). Just exit the loop.
 		s.done = true
 	case KeyRune:
 		switch key.Rune {
@@ -187,18 +193,23 @@ func (s *State) handleInputKey(key Key, kind string) error {
 		if s.input == "" {
 			return nil
 		}
-		// Check for duplicate names
 		if tmux.SessionExists(s.input, s.clientOpts) {
 			s.warning = "'" + s.input + "' already exists"
 			return nil
 		}
 		s.warning = ""
 		if kind == "new" {
-			s.action = Action{Kind: "new", Target: s.input}
+			if err := tmux.NewSessionDetached(s.input, s.clientOpts); err != nil {
+				s.warning = err.Error()
+			}
 		} else {
-			s.action = Action{Kind: "rename", Target: s.sessions[s.cursor].Name, NewName: s.input}
+			if err := tmux.RenameSession(s.sessions[s.cursor].Name, s.input, s.clientOpts); err != nil {
+				s.warning = err.Error()
+			}
 		}
-		s.done = true
+		s.refreshSessions()
+		s.mode = ModeList
+		s.input = ""
 	case KeyBackspace:
 		s.warning = ""
 		if len(s.input) > 0 {
@@ -207,7 +218,6 @@ func (s *State) handleInputKey(key Key, kind string) error {
 	case KeyCtrlC:
 		s.done = true
 	case KeyRune:
-		// Accept printable characters
 		if key.Rune >= ' ' && key.Rune <= '~' {
 			s.warning = ""
 			s.input += string(key.Rune)
@@ -220,8 +230,7 @@ func (s *State) handleInputKey(key Key, kind string) error {
 func (s *State) handleConfirmKey(key Key) error {
 	switch key.Type {
 	case KeyEnter:
-		s.action = Action{Kind: "kill", Target: s.sessions[s.cursor].Name}
-		s.done = true
+		return s.executeKill()
 	case KeyEscape:
 		s.mode = ModeList
 	case KeyCtrlC:
@@ -229,11 +238,24 @@ func (s *State) handleConfirmKey(key Key) error {
 	case KeyRune:
 		switch key.Rune {
 		case 'y', 'Y':
-			s.action = Action{Kind: "kill", Target: s.sessions[s.cursor].Name}
-			s.done = true
+			return s.executeKill()
 		case 'n', 'N', 'q':
 			s.mode = ModeList
 		}
 	}
+	return nil
+}
+
+// executeKill kills the selected session and refreshes the list.
+func (s *State) executeKill() error {
+	if s.cursor < len(s.sessions) {
+		if err := tmux.KillSession(s.sessions[s.cursor].Name, s.clientOpts); err != nil {
+			s.warning = err.Error()
+			s.mode = ModeList
+			return nil
+		}
+		s.refreshSessions()
+	}
+	s.mode = ModeList
 	return nil
 }
