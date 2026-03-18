@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # tmux-pilot installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/blockful/tmux-pilot/main/install.sh | bash
+#
+# Install:     curl -fsSL https://raw.githubusercontent.com/blockful/tmux-pilot/main/install.sh | bash
+# Uninstall:   curl -fsSL https://raw.githubusercontent.com/blockful/tmux-pilot/main/install.sh | bash -s -- --uninstall
+# Update:      just run the install command again
 #
 # Environment variables:
 #   INSTALL_DIR  — where to put the binary (default: ~/.local/bin)
@@ -60,14 +63,14 @@ verify_checksum() {
   local checksums_url="https://github.com/${REPO}/releases/download/${version}/checksums.txt"
   local tmpcheck
   tmpcheck="$(mktemp)"
-  download "$checksums_url" "$tmpcheck" || { rm -f "$tmpcheck"; return 0; }  # skip if unavailable
+  download "$checksums_url" "$tmpcheck" || { rm -f "$tmpcheck"; return 0; }
 
   local expected
   expected="$(grep "$expected_file" "$tmpcheck" | awk '{print $1}')"
   rm -f "$tmpcheck"
 
   if [ -z "$expected" ]; then
-    return 0  # no checksum found, skip
+    return 0
   fi
 
   local actual
@@ -76,7 +79,7 @@ verify_checksum() {
   elif command -v shasum &>/dev/null; then
     actual="$(shasum -a 256 "$archive" | awk '{print $1}')"
   else
-    return 0  # can't verify, skip
+    return 0
   fi
 
   if [ "$actual" != "$expected" ]; then
@@ -84,9 +87,51 @@ verify_checksum() {
   fi
 }
 
-# --- main ---
+# --- uninstall ---
 
-main() {
+uninstall() {
+  info "Uninstalling ${BINARY}..."
+
+  local found=false
+
+  if [ -f "${INSTALL_DIR}/${BINARY}" ]; then
+    rm -f "${INSTALL_DIR}/${BINARY}"
+    ok "Removed ${INSTALL_DIR}/${BINARY}"
+    found=true
+  fi
+
+  if [ -L "${INSTALL_DIR}/tp" ]; then
+    rm -f "${INSTALL_DIR}/tp"
+    ok "Removed ${INSTALL_DIR}/tp symlink"
+  fi
+
+  # Also check common locations
+  for dir in /usr/local/bin "${HOME}/.local/bin" "${HOME}/bin"; do
+    if [ "$dir" = "$INSTALL_DIR" ]; then
+      continue
+    fi
+    if [ -f "${dir}/${BINARY}" ]; then
+      rm -f "${dir}/${BINARY}"
+      ok "Removed ${dir}/${BINARY}"
+      found=true
+    fi
+    if [ -L "${dir}/tp" ]; then
+      rm -f "${dir}/tp"
+      ok "Removed ${dir}/tp symlink"
+    fi
+  done
+
+  if [ "$found" = true ]; then
+    ok "tmux-pilot uninstalled"
+  else
+    info "tmux-pilot not found in expected locations"
+    info "If installed elsewhere, remove the 'tmux-pilot' and 'tp' binaries manually"
+  fi
+}
+
+# --- install ---
+
+install() {
   info "Installing ${BINARY}..."
 
   local os arch version archive_name url tmpdir
@@ -96,7 +141,6 @@ main() {
 
   if [ -n "${VERSION:-}" ]; then
     version="${VERSION}"
-    # Ensure 'v' prefix
     [[ "$version" == v* ]] || version="v${version}"
   else
     info "Fetching latest version..."
@@ -104,7 +148,19 @@ main() {
   fi
 
   [ -z "$version" ] && fail "Could not determine latest version."
-  info "Version: ${version}"
+
+  # Check if already installed at this version
+  if command -v "$BINARY" &>/dev/null; then
+    local current
+    current="$("$BINARY" --version 2>/dev/null | awk '{print $2}')" || true
+    if [ "v${current}" = "$version" ] || [ "$current" = "$version" ]; then
+      ok "Already up to date (${version})"
+      return 0
+    fi
+    info "Updating from ${current} → ${version}"
+  else
+    info "Version: ${version}"
+  fi
 
   archive_name="${BINARY}_${os}_${arch}.tar.gz"
   url="https://github.com/${REPO}/releases/download/${version}/${archive_name}"
@@ -147,4 +203,28 @@ main() {
   "${INSTALL_DIR}/${BINARY}" --version 2>/dev/null && ok "Ready to use!" || true
 }
 
-main "$@"
+# --- entry ---
+
+case "${1:-}" in
+  --uninstall|-u)
+    uninstall
+    ;;
+  --help|-h)
+    echo "tmux-pilot installer"
+    echo ""
+    echo "Install:     curl -fsSL https://raw.githubusercontent.com/blockful/tmux-pilot/main/install.sh | bash"
+    echo "Update:      same command (detects current version)"
+    echo "Uninstall:   curl -fsSL ... | bash -s -- --uninstall"
+    echo ""
+    echo "Options:"
+    echo "  --uninstall, -u    Remove tmux-pilot and tp symlink"
+    echo "  --help, -h         Show this help"
+    echo ""
+    echo "Environment:"
+    echo "  INSTALL_DIR        Install location (default: ~/.local/bin)"
+    echo "  VERSION            Specific version to install (default: latest)"
+    ;;
+  *)
+    install
+    ;;
+esac
