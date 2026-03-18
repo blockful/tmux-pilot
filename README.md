@@ -26,6 +26,53 @@ go install github.com/blockful/tmux-pilot/cmd@latest
 
 Or download from [Releases](https://github.com/blockful/tmux-pilot/releases).
 
+## Usage
+
+```bash
+tmux-pilot [flags]
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `-h`, `--help` | Show usage and exit |
+| `-v`, `--version` | Show version and exit |
+| `-l`, `--list` | Print sessions as TSV and exit |
+| `-S <path>` | Use custom tmux socket path |
+| `-L <name>` | Use named tmux socket |
+| `--no-color` | Disable ANSI colors |
+
+### Examples
+
+```bash
+# Basic usage
+tmux-pilot
+
+# Custom socket path
+tmux-pilot -S /tmp/custom-socket
+
+# Named socket
+tmux-pilot -L development
+
+# Non-interactive TSV output
+tmux-pilot --list
+
+# Disable colors
+tmux-pilot --no-color
+NO_COLOR=1 tmux-pilot
+```
+
+### List Mode Output
+
+With `--list`, sessions are printed as tab-separated values:
+
+```
+main	3	attached
+api-server	1	detached
+notes	2	detached
+```
+
 ## Setup
 
 Add to `~/.tmux.conf`:
@@ -40,20 +87,27 @@ Optional alias in `~/.bashrc` or `~/.zshrc`:
 alias tp="tmux-pilot"
 ```
 
-## How it works
+## Keybindings
 
-tmux-pilot is a thin picker. It shows your sessions, you choose an action, it exits and runs the tmux command:
+| Key | Action | Command |
+|-----|--------|---------|
+| `↑`/`k` | Navigate up | - |
+| `↓`/`j` | Navigate down | - |
+| `Enter` | Switch/attach to session | `tmux switch-client -t <name>` |
+| `n` | Create new session | `tmux new-session -d -s <name>` |
+| `r` | Rename session | `tmux rename-session -t <old> <new>` |
+| `x` | Kill session | `tmux kill-session -t <name>` |
+| `d` | Detach client | `tmux detach-client` |
+| `q`/`Esc` | Quit without action | - |
 
-| Key | Runs |
-|-----|------|
-| `enter` | `tmux switch-client -t <name>` |
-| `n` | `tmux new-session -d -s <name> && tmux switch-client -t <name>` |
-| `r` | `tmux rename-session -t <old> <new>` |
-| `x` | `tmux kill-session -t <name>` |
-| `d` | `tmux detach-client` |
-| `q`/`esc` | exit |
+## Features
 
-Navigation: `↑`/`↓` or `j`/`k`
+- **Zero dependencies** except `golang.org/x/term`
+- **Raw ANSI rendering** for maximum compatibility
+- **Socket support** for isolated tmux instances
+- **Color control** respects `NO_COLOR` environment variable
+- **In-place rendering** without alt screen mode
+- **Signal handling** for graceful cleanup
 
 ## License
 

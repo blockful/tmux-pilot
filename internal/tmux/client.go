@@ -9,8 +9,9 @@ import (
 )
 
 // ListSessions returns all tmux sessions.
-func ListSessions() ([]Session, error) {
-	out, err := exec.Command("tmux", "list-sessions", "-F", "#{session_name}\t#{session_windows}\t#{session_attached}").Output()
+func ListSessions(opts ClientOptions) ([]Session, error) {
+	args := append(opts.Args(), "list-sessions", "-F", "#{session_name}\t#{session_windows}\t#{session_attached}")
+	out, err := exec.Command("tmux", args...).Output()
 	if err != nil {
 		if isNoServer(err) {
 			return nil, nil
@@ -21,11 +22,12 @@ func ListSessions() ([]Session, error) {
 }
 
 // SwitchOrAttach switches to a session (inside tmux) or attaches (outside).
-func SwitchOrAttach(name string) error {
+func SwitchOrAttach(name string, opts ClientOptions) error {
 	if IsInsideTmux() {
-		return run("switch-client", "-t", name)
+		return run(opts, "switch-client", "-t", name)
 	}
-	cmd := exec.Command("tmux", "attach-session", "-t", name)
+	args := append(opts.Args(), "attach-session", "-t", name)
+	cmd := exec.Command("tmux", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -33,26 +35,26 @@ func SwitchOrAttach(name string) error {
 }
 
 // NewSession creates a session and switches to it.
-func NewSession(name string) error {
-	if err := run("new-session", "-d", "-s", name); err != nil {
+func NewSession(name string, opts ClientOptions) error {
+	if err := run(opts, "new-session", "-d", "-s", name); err != nil {
 		return err
 	}
-	return SwitchOrAttach(name)
+	return SwitchOrAttach(name, opts)
 }
 
 // RenameSession renames a session.
-func RenameSession(old, new string) error {
-	return run("rename-session", "-t", old, new)
+func RenameSession(old, new string, opts ClientOptions) error {
+	return run(opts, "rename-session", "-t", old, new)
 }
 
 // KillSession kills a session.
-func KillSession(name string) error {
-	return run("kill-session", "-t", name)
+func KillSession(name string, opts ClientOptions) error {
+	return run(opts, "kill-session", "-t", name)
 }
 
 // Detach detaches the current client.
-func Detach() error {
-	return run("detach-client")
+func Detach(opts ClientOptions) error {
+	return run(opts, "detach-client")
 }
 
 // IsInsideTmux returns true if running inside a tmux session.
@@ -61,8 +63,8 @@ func IsInsideTmux() bool {
 }
 
 // SessionExists checks if a session name is already taken.
-func SessionExists(name string) bool {
-	sessions, err := ListSessions()
+func SessionExists(name string, opts ClientOptions) bool {
+	sessions, err := ListSessions(opts)
 	if err != nil {
 		return false
 	}
@@ -74,8 +76,9 @@ func SessionExists(name string) bool {
 	return false
 }
 
-func run(args ...string) error {
-	return exec.Command("tmux", args...).Run()
+func run(opts ClientOptions, args ...string) error {
+	cmdArgs := append(opts.Args(), args...)
+	return exec.Command("tmux", cmdArgs...).Run()
 }
 
 func parseSessions(output string) ([]Session, error) {

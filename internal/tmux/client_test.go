@@ -1,6 +1,9 @@
 package tmux
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestParseSessions(t *testing.T) {
 	tests := []struct {
@@ -34,5 +37,26 @@ func TestParseSessions_Fields(t *testing.T) {
 	}
 	if sessions[1].Attached {
 		t.Error("session 1 should be detached")
+	}
+}
+
+func TestClientOptions_Args(t *testing.T) {
+	tests := []struct {
+		name string
+		opts ClientOptions
+		want []string
+	}{
+		{"empty", ClientOptions{}, []string{}},
+		{"socket path", ClientOptions{SocketPath: "/tmp/test"}, []string{"-S", "/tmp/test"}},
+		{"socket name", ClientOptions{SocketName: "test"}, []string{"-L", "test"}},
+		{"both should use socket path", ClientOptions{SocketPath: "/tmp/test", SocketName: "test"}, []string{"-S", "/tmp/test"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.opts.Args()
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Args() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

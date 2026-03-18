@@ -1,0 +1,304 @@
+package tui
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"strings"
+
+	"github.com/blockful/tmux-pilot/internal/tmux"
+)
+
+// ColorMode controls ANSI color output.
+type ColorMode bool
+
+const (
+	ColorEnabled  ColorMode = true
+	ColorDisabled ColorMode = false
+)
+
+// ANSI color codes (256-color).
+const (
+	ColorAccent = 205 // bright magenta
+	ColorText   = 252 // light gray
+	ColorDim    = 243 // dark gray
+	ColorBorder = 240 // darker gray
+	ColorGreen  = 46  // bright green
+	ColorYellow = 214 // orange-yellow
+	ColorBg     = 237 // dark background
+)
+
+// Renderer handles ANSI output and screen drawing.
+// All output goes through the writer (stdout by default) and uses \r\n
+// because the terminal is in raw mode (no automatic CR on LF).
+type Renderer struct {
+	colorMode  ColorMode
+	w          io.Writer
+	lastHeight int // lines rendered last frame, for cursor rewind
+}
+
+// NewRenderer creates a new renderer writing to stdout.
+func NewRenderer(colorMode ColorMode) *Renderer {
+	return &Renderer{colorMode: colorMode, w: os.Stdout}
+}
+
+// NewRendererTo creates a renderer writing to a custom writer (for testing).
+func NewRendererTo(w io.Writer, colorMode ColorMode) *Renderer {
+	return &Renderer{colorMode: colorMode, w: w}
+}
+
+// --- ANSI primitives ---
+
+// MoveCursor positions the cursor at (x, y) coordinates (1-indexed).
+func (r *Renderer) MoveCursor(x, y int) {
+	fmt.Fprintf(r.w, "\x1b[%d;%dH", y, x)
+}
+
+// MoveUp moves the cursor up n lines.
+func (r *Renderer) MoveUp(n int) {
+	if n > 0 {
+		fmt.Fprintf(r.w, "\x1b[%dA", n)
+	}
+}
+
+// ClearLine clears the entire current line.
+func (r *Renderer) ClearLine() {
+	fmt.Fprint(r.w, "\x1b[2K")
+}
+
+// ClearFromCursor clears from cursor to end of line.
+func (r *Renderer) ClearFromCursor() {
+	fmt.Fprint(r.w, "\x1b[0K")
+}
+
+// HideCursor hides the cursor.
+func (r *Renderer) HideCursor() {
+	fmt.Fprint(r.w, "\x1b[?25l")
+}
+
+// ShowCursor shows the cursor.
+func (r *Renderer) ShowCursor() {
+	fmt.Fprint(r.w, "\x1b[?25h")
+}
+
+// color writes a foreground color escape if colors are enabled.
+func (r *Renderer) color(code int) string {
+	if r.colorMode {
+		return fmt.Sprintf("\x1b[38;5;%dm", code)
+	}
+	return ""
+}
+
+// bg writes a background color escape if colors are enabled.
+func (r *Renderer) bg(code int) string {
+	if r.colorMode {
+		return fmt.Sprintf("\x1b[48;5;%dm", code)
+	}
+	return ""
+}
+
+// reset returns the ANSI reset sequence.
+func (r *Renderer) reset() string {
+	return "\x1b[0m"
+}
+
+// bold returns the ANSI bold sequence.
+func (r *Renderer) bold() string {
+	if r.colorMode {
+		return "\x1b[1m"
+	}
+	return ""
+}
+
+// --- line helper ---
+
+// writeln writes a line with \r\n (raw mode needs explicit CR).
+// It clears the line first to avoid artifacts from previous renders.
+func (r *Renderer) writeln(s string) {
+	fmt.Fprintf(r.w, "\x1b[2K\r%s\r\n", s)
+}
+
+// --- High-level rendering ---
+
+// RenderUI draws the complete interface. On subsequent calls it rewinds
+// the cursor to overwrite the previous frame, giving in-place updates.
+func (r *Renderer) RenderUI(sessions []tmux.Session, cursor int, mode Mode, input, warning string, width int) {
+	r.HideCursor()
+
+	// Rewind cursor to top of previous frame
+	if r.lastHeight > 0 {
+		r.MoveUp(r.lastHeight)
+		fmt.Fprint(r.w, "\r") // back to column 1
+	}
+
+	lines := 0
+
+	// === Session list with border ===
+	bdr := r.color(ColorBorder)
+	rst := r.reset()
+
+	// Top border
+	r.writeln(bdr + "╭" + strings.Repeat("─", width-2) + "╮" + rst)
+	lines++
+
+	// Title
+	title := "tmux sessions"
+	pad := (width - 2 - len(title)) / 2
+	if pad < 1 {
+		pad = 1
+	}
+	r.writeln(bdr + "│" + rst +
+		strings.Repeat(" ", pad) +
+		r.color(ColorAccent) + r.bold() + title + rst +
+		strings.Repeat(" ", width-2-pad-len(title)) +
+		bdr + "│" + rst)
+	lines++
+
+	// Empty line
+	r.writeln(bdr + "│" + strings.Repeat(" ", width-2) + "│" + rst)
+	lines++
+
+	// Sessions or "no sessions"
+	if len(sessions) == 0 {
+		msg := "No tmux sessions running"
+		p := (width - 2 - len(msg)) / 2
+		if p < 1 {
+			p = 1
+		}
+		r.writeln(bdr + "│" + rst +
+			strings.Repeat(" ", p) +
+			r.color(ColorDim) + msg + rst +
+			strings.Repeat(" ", width-2-p-len(msg)) +
+			bdr + "│" + rst)
+		lines++
+	} else {
+		for i, s := range sessions {
+			r.writeln(r.fmtSession(s, i == cursor, width))
+			lines++
+		}
+	}
+
+	// Empty line
+	r.writeln(bdr + "│" + strings.Repeat(" ", width-2) + "│" + rst)
+	lines++
+
+	// Bottom border
+	r.writeln(bdr + "╰" + strings.Repeat("─", width-2) + "╯" + rst)
+	lines++
+
+	// === Mode-specific content below the box ===
+	switch mode {
+	case ModeList:
+		hint := "↑/k ↓/j: navigate  Enter: attach  n: new  r: rename  x: kill  d: detach  q: quit"
+		r.writeln(r.color(ColorDim) + hint + rst)
+		lines++
+	case ModeCreate:
+		r.writeln(r.color(ColorAccent) + "New session name: " + rst + input + "█")
+		lines++
+		if warning != "" {
+			r.writeln(r.color(ColorYellow) + "⚠ " + warning + rst)
+			lines++
+		}
+		r.writeln(r.color(ColorDim) + "Enter: confirm  Esc: cancel" + rst)
+		lines++
+	case ModeRename:
+		label := "Rename to: "
+		r.writeln(r.color(ColorAccent) + label + rst + input + "█")
+		lines++
+		if warning != "" {
+			r.writeln(r.color(ColorYellow) + "⚠ " + warning + rst)
+			lines++
+		}
+		r.writeln(r.color(ColorDim) + "Enter: confirm  Esc: cancel" + rst)
+		lines++
+	case ModeConfirmKill:
+		if len(sessions) > 0 {
+			r.writeln(r.color(ColorYellow) + fmt.Sprintf("Kill session '%s'? ", sessions[cursor].Name) + rst + "(y/N)")
+			lines++
+		}
+	}
+
+	// Clear any leftover lines from a taller previous frame
+	if lines < r.lastHeight {
+		for i := 0; i < r.lastHeight-lines; i++ {
+			r.writeln("")
+		}
+		// Move back up past the blank lines so next rewind is correct
+		r.MoveUp(r.lastHeight - lines)
+	}
+
+	r.lastHeight = lines
+}
+
+// Cleanup clears the rendered UI from the terminal. Call before exiting.
+func (r *Renderer) Cleanup() {
+	if r.lastHeight > 0 {
+		r.MoveUp(r.lastHeight)
+		fmt.Fprint(r.w, "\r")
+		for i := 0; i < r.lastHeight; i++ {
+			fmt.Fprint(r.w, "\x1b[2K\r\n")
+		}
+		r.MoveUp(r.lastHeight)
+		fmt.Fprint(r.w, "\r")
+	}
+	r.ShowCursor()
+}
+
+// fmtSession formats a single session line inside the border box.
+func (r *Renderer) fmtSession(s tmux.Session, selected bool, width int) string {
+	bdr := r.color(ColorBorder)
+	rst := r.reset()
+
+	// Build the visible content (no ANSI) to calculate padding
+	dot := "○"
+	if s.Attached {
+		dot = "●"
+	}
+	status := "detached"
+	if s.Attached {
+		status = "attached"
+	}
+	winWord := "window"
+	if s.WindowCount != 1 {
+		winWord = "windows"
+	}
+	visible := fmt.Sprintf(" %s %-15s  %d %s   %s", dot, s.Name, s.WindowCount, winWord, status)
+
+	// Pad to fill the box width (subtract 2 for borders)
+	innerWidth := width - 2
+	padLen := innerWidth - len(visible)
+	if padLen < 0 {
+		padLen = 0
+	}
+
+	// Build the styled line
+	var line strings.Builder
+	line.WriteString(bdr + "│" + rst)
+
+	if selected {
+		line.WriteString(r.bg(ColorBg))
+	}
+
+	// Dot color
+	if s.Attached {
+		line.WriteString(r.color(ColorGreen))
+	} else {
+		line.WriteString(r.color(ColorDim))
+	}
+	line.WriteString(fmt.Sprintf(" %s ", dot))
+
+	// Session info
+	if selected {
+		line.WriteString(r.color(ColorAccent))
+	} else {
+		line.WriteString(r.color(ColorText))
+	}
+	line.WriteString(fmt.Sprintf("%-15s  %d %s   %s", s.Name, s.WindowCount, winWord, status))
+
+	// Padding (keep bg color for selection highlight)
+	line.WriteString(strings.Repeat(" ", padLen))
+	line.WriteString(rst)
+	line.WriteString(bdr + "│" + rst)
+
+	return line.String()
+}
