@@ -164,12 +164,7 @@ func TestState_ExitActions(t *testing.T) {
 			Action{Kind: "switch", Target: "session1"},
 			true,
 		},
-		{
-			"detach on d",
-			Key{Type: KeyRune, Rune: 'd'},
-			Action{Kind: "detach"},
-			true,
-		},
+
 		{
 			"quit on q",
 			Key{Type: KeyRune, Rune: 'q'},

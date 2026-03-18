@@ -18,11 +18,11 @@ const (
 )
 
 // Action is what the TUI tells the caller to do after exit.
-// Only "switch" and "detach" exit the TUI. Kill, rename, and create
-// are executed inline and the picker stays open.
+// Only "switch" exits the TUI. Kill, rename, and create are executed
+// inline and the picker stays open.
 type Action struct {
-	Kind    string // "switch", "detach", ""
-	Target  string // session name
+	Kind   string // "switch", ""
+	Target string // session name
 }
 
 // State holds the current TUI state.
@@ -174,9 +174,6 @@ func (s *State) handleListKey(key Key) error {
 			if len(s.sessions) > 0 {
 				s.mode = ModeConfirmKill
 			}
-		case 'd':
-			s.action = Action{Kind: "detach"}
-			s.done = true
 		}
 	}
 	return nil

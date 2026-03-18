@@ -141,9 +141,10 @@ KEYBINDINGS:
     Enter      Switch to selected session
     n          Create new session
     r          Rename selected session
-    x          Kill selected session
-    d          Detach current client
+    x          Kill selected session (stays in picker)
     q/Esc      Quit without action
+
+    tip: Ctrl-b d to detach from tmux
 
 EXAMPLES:
     tmux-pilot                     # Basic usage
@@ -169,14 +170,11 @@ func printSessionsTSV(sessions []tmux.Session) {
 }
 
 // execute runs the action chosen by the user.
-// Only "switch" and "detach" exit the TUI — kill, rename, and create
-// are executed inline while the picker stays open.
+// Only "switch" exits the TUI — kill, rename, and create are handled
+// inline while the picker stays open.
 func execute(a tui.Action, opts tmux.ClientOptions) error {
-	switch a.Kind {
-	case "switch":
+	if a.Kind == "switch" {
 		return tmux.SwitchOrAttach(a.Target, opts)
-	case "detach":
-		return tmux.Detach(opts)
 	}
 	return nil // user quit without action
 }

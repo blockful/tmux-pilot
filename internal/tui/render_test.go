@@ -87,7 +87,7 @@ func TestRenderer_RenderUI(t *testing.T) {
 			"list mode",
 			ModeList,
 			"", "",
-			[]string{"tmux sessions", "main", "api", "navigate"},
+			[]string{"tmux sessions", "main", "api", "navigate", "Ctrl-b d"},
 		},
 		{
 			"create mode",
