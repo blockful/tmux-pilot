@@ -202,7 +202,7 @@ func (r *Renderer) RenderUI(sessions []tmux.Session, cursor int, mode Mode, inpu
 	// === Mode-specific content below the box ===
 	switch mode {
 	case ModeList:
-		r.writeln(r.color(ColorDim) + "↑/k ↓/j: navigate  Enter: attach  n: new  r: rename  x: kill  q: quit" + rst)
+		r.writeln(r.color(ColorDim) + "↑/k ↓/j: navigate  Enter: attach  n: new  r: rename  x: kill  q/Esc: quit" + rst)
 		lines++
 		r.writeln(r.color(ColorDim) + "tip: " + rst + r.color(ColorAccent) + "Ctrl-b d" + rst + r.color(ColorDim) + " to detach from tmux" + rst)
 		lines++
