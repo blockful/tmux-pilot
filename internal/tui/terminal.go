@@ -47,7 +47,7 @@ func (t *Terminal) SetupSignalHandlers(onCleanup func()) {
 		if onCleanup != nil {
 			onCleanup()
 		}
-		t.Restore()
+		_ = t.Restore()
 		os.Exit(130)
 	}()
 }
