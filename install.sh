@@ -128,7 +128,11 @@ main() {
   mv "${tmpdir}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
   chmod +x "${INSTALL_DIR}/${BINARY}"
 
+  # Create 'tp' shortcut symlink
+  ln -sf "${INSTALL_DIR}/${BINARY}" "${INSTALL_DIR}/tp"
+
   ok "Installed ${BINARY} ${version} to ${INSTALL_DIR}/${BINARY}"
+  ok "Shortcut: 'tp' is ready to use"
 
   # Check PATH
   if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
