@@ -48,37 +48,50 @@ func NewRendererTo(w io.Writer, colorMode ColorMode) *Renderer {
 }
 
 // --- ANSI primitives ---
+//
+// Terminal escape writes intentionally discard errors — if stdout is broken
+// mid-render, there is no recovery path. We use a helper to satisfy linters.
+
+// write is a helper that writes to the output and discards errors.
+func (r *Renderer) write(s string) {
+	_, _ = fmt.Fprint(r.w, s)
+}
+
+// writef is a formatted write helper that discards errors.
+func (r *Renderer) writef(format string, args ...any) {
+	_, _ = fmt.Fprintf(r.w, format, args...)
+}
 
 // MoveCursor positions the cursor at (x, y) coordinates (1-indexed).
 func (r *Renderer) MoveCursor(x, y int) {
-	fmt.Fprintf(r.w, "\x1b[%d;%dH", y, x)
+	r.writef("\x1b[%d;%dH", y, x)
 }
 
 // MoveUp moves the cursor up n lines.
 func (r *Renderer) MoveUp(n int) {
 	if n > 0 {
-		fmt.Fprintf(r.w, "\x1b[%dA", n)
+		r.writef("\x1b[%dA", n)
 	}
 }
 
 // ClearLine clears the entire current line.
 func (r *Renderer) ClearLine() {
-	fmt.Fprint(r.w, "\x1b[2K")
+	r.write("\x1b[2K")
 }
 
 // ClearFromCursor clears from cursor to end of line.
 func (r *Renderer) ClearFromCursor() {
-	fmt.Fprint(r.w, "\x1b[0K")
+	r.write("\x1b[0K")
 }
 
 // HideCursor hides the cursor.
 func (r *Renderer) HideCursor() {
-	fmt.Fprint(r.w, "\x1b[?25l")
+	r.write("\x1b[?25l")
 }
 
 // ShowCursor shows the cursor.
 func (r *Renderer) ShowCursor() {
-	fmt.Fprint(r.w, "\x1b[?25h")
+	r.write("\x1b[?25h")
 }
 
 // color writes a foreground color escape if colors are enabled.
@@ -115,7 +128,7 @@ func (r *Renderer) bold() string {
 // writeln writes a line with \r\n (raw mode needs explicit CR).
 // It clears the line first to avoid artifacts from previous renders.
 func (r *Renderer) writeln(s string) {
-	fmt.Fprintf(r.w, "\x1b[2K\r%s\r\n", s)
+	r.writef("\x1b[2K\r%s\r\n", s)
 }
 
 // --- High-level rendering ---
@@ -128,7 +141,7 @@ func (r *Renderer) RenderUI(sessions []tmux.Session, cursor int, mode Mode, inpu
 	// Rewind cursor to top of previous frame
 	if r.lastHeight > 0 {
 		r.MoveUp(r.lastHeight)
-		fmt.Fprint(r.w, "\r") // back to column 1
+		r.write("\r") // back to column 1
 	}
 
 	lines := 0
@@ -234,12 +247,12 @@ func (r *Renderer) RenderUI(sessions []tmux.Session, cursor int, mode Mode, inpu
 func (r *Renderer) Cleanup() {
 	if r.lastHeight > 0 {
 		r.MoveUp(r.lastHeight)
-		fmt.Fprint(r.w, "\r")
+		r.write("\r")
 		for i := 0; i < r.lastHeight; i++ {
-			fmt.Fprint(r.w, "\x1b[2K\r\n")
+			r.write("\x1b[2K\r\n")
 		}
 		r.MoveUp(r.lastHeight)
-		fmt.Fprint(r.w, "\r")
+		r.write("\r")
 	}
 	r.ShowCursor()
 }

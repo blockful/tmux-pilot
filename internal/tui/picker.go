@@ -74,7 +74,7 @@ func Run(sessions []tmux.Session, colorEnabled bool, clientOpts tmux.ClientOptio
 	// Ensure cleanup: clear UI, show cursor, restore terminal — always.
 	defer func() {
 		state.renderer.Cleanup()
-		state.terminal.Restore()
+		_ = state.terminal.Restore()
 	}()
 
 	// Signal handler also needs to clean up before exit.

@@ -25,26 +25,25 @@ func TestReadKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create a temporary pipe to simulate stdin
 			r, w, err := os.Pipe()
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer r.Close()
-			defer w.Close()
 
 			// Replace stdin
 			oldStdin := os.Stdin
 			os.Stdin = r
-			defer func() { os.Stdin = oldStdin }()
-
-			// Write test input
-			go func() {
-				w.Write(tt.input)
-				w.Close()
+			defer func() {
+				os.Stdin = oldStdin
+				_ = r.Close()
 			}()
 
-			// Read the key
+			// Write test input in goroutine
+			go func() {
+				_, _ = w.Write(tt.input)
+				_ = w.Close()
+			}()
+
 			got, err := ReadKey()
 			if err != nil {
 				t.Fatalf("ReadKey() error = %v", err)
@@ -61,9 +60,8 @@ func TestReadKey(t *testing.T) {
 }
 
 func TestKeyTypes(t *testing.T) {
-	// Test that all key types are distinct
 	types := []KeyType{KeyRune, KeyUp, KeyDown, KeyEnter, KeyEscape, KeyBackspace, KeyCtrlC}
-	
+
 	for i, typ1 := range types {
 		for j, typ2 := range types {
 			if i != j && typ1 == typ2 {
