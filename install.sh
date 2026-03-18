@@ -111,13 +111,20 @@ uninstall() {
       continue
     fi
     if [ -f "${dir}/${BINARY}" ]; then
-      rm -f "${dir}/${BINARY}"
-      ok "Removed ${dir}/${BINARY}"
+      if rm -f "${dir}/${BINARY}" 2>/dev/null; then
+        ok "Removed ${dir}/${BINARY}"
+      else
+        info "Need sudo to remove ${dir}/${BINARY}"
+        sudo rm -f "${dir}/${BINARY}" && ok "Removed ${dir}/${BINARY}"
+      fi
       found=true
     fi
     if [ -L "${dir}/tp" ]; then
-      rm -f "${dir}/tp"
-      ok "Removed ${dir}/tp symlink"
+      if rm -f "${dir}/tp" 2>/dev/null; then
+        ok "Removed ${dir}/tp symlink"
+      else
+        sudo rm -f "${dir}/tp" && ok "Removed ${dir}/tp symlink"
+      fi
     fi
   done
 
