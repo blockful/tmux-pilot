@@ -185,8 +185,19 @@ func (r *Renderer) RenderUI(sessions []tmux.Session, cursor int, mode Mode, inpu
 			bdr + "│" + rst)
 		lines++
 	} else {
+		// Find longest session name for column alignment
+		maxName := 0
+		for _, s := range sessions {
+			if len(s.Name) > maxName {
+				maxName = len(s.Name)
+			}
+		}
+		if maxName < 8 {
+			maxName = 8 // minimum column width
+		}
+
 		for i, s := range sessions {
-			r.writeln(r.fmtSession(s, i == cursor, width))
+			r.writeln(r.fmtSession(s, i == cursor, width, maxName))
 			lines++
 		}
 	}
@@ -259,11 +270,11 @@ func (r *Renderer) Cleanup() {
 }
 
 // fmtSession formats a single session line inside the border box.
-func (r *Renderer) fmtSession(s tmux.Session, selected bool, width int) string {
+// nameWidth is the column width for session names (all rows use the same).
+func (r *Renderer) fmtSession(s tmux.Session, selected bool, width int, nameWidth int) string {
 	bdr := r.color(ColorBorder)
 	rst := r.reset()
 
-	// Build visible content to calculate display width for padding.
 	status := "detached"
 	if s.Attached {
 		status = "attached"
@@ -272,9 +283,8 @@ func (r *Renderer) fmtSession(s tmux.Session, selected bool, width int) string {
 	if s.WindowCount != 1 {
 		winWord = "windows"
 	}
-	// Calculate display width using ASCII-only content (dot = 1 col).
-	// Format: " ● name            N windows   status"
-	infoText := fmt.Sprintf("%-15s  %d %s   %s", s.Name, s.WindowCount, winWord, status)
+	// Aligned columns: " ● name     N windows   status"
+	infoText := fmt.Sprintf("%-*s  %d %-7s  %s", nameWidth, s.Name, s.WindowCount, winWord, status)
 	displayWidth := 1 + 1 + 1 + len(infoText) // space + dot(1col) + space + info
 
 	// Pad to fill the box width (subtract 2 for borders)
